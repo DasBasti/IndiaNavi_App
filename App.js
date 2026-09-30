@@ -5,6 +5,8 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import Button from './components/Button';
 import FilterScreen from './components/FilterScreen';
+import TracksScreen from './components/TracksScreen';
+import TransferScreen from './components/TransferScreen';
 import MapPreview, { areaColor } from './components/MapPreview';
 import TileServerSetting from './components/TileServerSetting';
 
@@ -15,7 +17,8 @@ import { deleteTiles, listSdCardFiles, trackFile, writeFile } from './modules/sd
 import { loadSettings, saveSettings } from './modules/settings';
 import { loadTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
-import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, trackLines, zoomMargin } from './modules/tiles';
+import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, trackLength, trackLines, zoomMargin } from './modules/tiles';
+import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_library';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -26,14 +29,38 @@ const isFilter = (filter) =>
   Array.isArray(filter) && filter.length > 0 &&
   filter.every(({ rgb, colors }) => Array.isArray(rgb) && rgb.length === 3 && Array.isArray(colors) && colors.length > 0);
 
+// Reads the lines of a GPX file, returns { lines, bounds }
+const readLines = (name, text) => {
+  const lines = trackLines(parse(text));
+  const bounds = calculateBoundaries(lines);
+  if (bounds === null) {
+    throw new Error(`${name} has no track or route`);
+  }
+  return { lines, bounds };
+};
+
+// The track selected the last time the app was used
+const selectedTrack = (id) => {
+  if (!id) {
+    return null;
+  }
+  try {
+    const entry = { id, name: '', ...listTracks().find((track) => track.id === id) };
+    const text = readTrack(id);
+    return { id, name: entry.name, text, ...readLines(entry.name, text) };
+  } catch {
+    return null;
+  }
+};
+
 export default function App() {
-  // { name, text, lines, bounds } of the opened GPX file
-  const [track, setTrack] = useState(null);
-  const [margin, setMargin] = useState(DEFAULT_MARGIN);
   const [settings, setSettings] = useState(loadSettings);
   const tileUrlTemplate = settings.tileUrl ?? DEFAULT_TILE_URL;
   const filter = isFilter(settings.filter) ? settings.filter : DEFAULT_FILTER;
-  // 'main' or 'filter'
+  // { id, name, text, lines, bounds } of the selected track
+  const [track, setTrack] = useState(() => selectedTrack(settings.trackId));
+  const [margin, setMargin] = useState(DEFAULT_MARGIN);
+  // 'main', 'tracks', 'filter' or 'transfer'
   const [screen, setScreen] = useState('main');
   const [error, setError] = useState(null);
   // { done, total, failed } while the tiles are loaded
@@ -47,26 +74,61 @@ export default function App() {
     [track, margin]
   );
 
+  const changeSettings = useCallback((changes) => {
+    setSettings((current) => {
+      const newSettings = { ...current, ...changes };
+      saveSettings(newSettings);
+      return newSettings;
+    });
+  }, []);
+
+  const showTrack = useCallback((newTrack) => {
+    abort.current?.abort();
+    setScreen('main');
+    setError(null);
+    setPrepared(null);
+    setTrack(newTrack);
+    changeSettings({ trackId: newTrack?.id });
+  }, [changeSettings]);
+
+  // opened GPX files are added to the tracks and selected
   const openGpx = useCallback(async (load) => {
     try {
       const file = await load();
       if (file === null) {
         return;
       }
-      const lines = trackLines(parse(file.text));
-      const bounds = calculateBoundaries(lines);
-      if (bounds === null) {
-        throw new Error(`${file.name} has no track or route`);
-      }
-      abort.current?.abort();
-      setScreen('main');
-      setError(null);
-      setPrepared(null);
-      setTrack({ ...file, lines, bounds });
+      const { lines, bounds } = readLines(file.name, file.text);
+      const entry = addTrack(file.name, file.text, trackLength(lines));
+      showTrack({ id: entry.id, name: entry.name, text: file.text, lines, bounds });
     } catch (e) {
+      setScreen('main');
       setError(`Could not open GPX: ${e.message}`);
     }
-  }, []);
+  }, [showTrack]);
+
+  const selectTrack = (entry) => {
+    try {
+      const text = readTrack(entry.id);
+      touchTrack(entry.id);
+      showTrack({ id: entry.id, name: entry.name, text, ...readLines(entry.name, text) });
+    } catch (e) {
+      setScreen('main');
+      setError(`Could not open ${entry.name}: ${e.message}`);
+    }
+  };
+
+  const trackDeleted = (id) => {
+    if (track?.id === id) {
+      abort.current?.abort();
+      setPrepared(null);
+      setTrack(null);
+      changeSettings({ trackId: undefined });
+    }
+    if (settings.deviceTrackId === id) {
+      changeSettings({ deviceTrackId: undefined });
+    }
+  };
 
   // GPX files opened with the app from a file manager, mail, browser, ...
   useEffect(() => {
@@ -89,9 +151,7 @@ export default function App() {
   const changeTileSettings = (changes) => {
     try {
       deleteTiles();
-      const newSettings = { ...settings, ...changes };
-      saveSettings(newSettings);
-      setSettings(newSettings);
+      changeSettings(changes);
       setError(null);
       setPrepared(null);
     } catch (e) {
@@ -104,9 +164,9 @@ export default function App() {
   const changeFilter = (newFilter) =>
     changeTileSettings({ filter: newFilter === DEFAULT_FILTER ? undefined : newFilter });
 
-  // the Android back button leaves the filter screen
+  // the Android back button leaves the tracks and filter screen, the transfer screen handles it itself
   useEffect(() => {
-    if (screen === 'main') {
+    if (screen !== 'filter' && screen !== 'tracks') {
       return;
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -160,7 +220,16 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
-        {screen === 'filter' ? (
+        {screen === 'tracks' ? (
+          <TracksScreen
+            selectedId={track?.id}
+            deviceTrackId={settings.deviceTrackId}
+            onSelect={selectTrack}
+            onOpenGpx={() => openGpx(pickGpxFile)}
+            onDeleted={trackDeleted}
+            onBack={() => setScreen('main')}
+          />
+        ) : screen === 'filter' ? (
           <FilterScreen
             filter={filter}
             tileUrlTemplate={tileUrlTemplate}
@@ -168,11 +237,19 @@ export default function App() {
             onApply={changeFilter}
             onBack={() => setScreen('main')}
           />
+        ) : screen === 'transfer' ? (
+          <TransferScreen
+            files={prepared.files}
+            device={settings.device ?? {}}
+            onDeviceChange={(device) => changeSettings({ device })}
+            onTransferred={() => changeSettings({ deviceTrackId: track.id })}
+            onBack={() => setScreen('main')}
+          />
         ) : (
           <>
             <View style={styles.row}>
               <Text style={styles.title}>IndiaNavi</Text>
-              <Button title="Open GPX" onPress={() => openGpx(pickGpxFile)} disabled={loading} />
+              <Button title="Tracks" onPress={() => setScreen('tracks')} disabled={loading} />
               <Button title="Filter" onPress={() => setScreen('filter')} disabled={loading} />
             </View>
 
@@ -182,7 +259,10 @@ export default function App() {
 
             {track ? (
               <>
-                <Text style={styles.name} numberOfLines={1}>{track.name}</Text>
+                <Text style={styles.name} numberOfLines={1}>
+                  {track.name}
+                  {track.id === settings.deviceTrackId && <Text style={styles.onDevice}> · on the IndiaNavi</Text>}
+                </Text>
 
                 <MapPreview lines={track.lines} bounds={track.bounds} margin={margin} tileUrlTemplate={tileUrlTemplate} />
 
@@ -233,10 +313,14 @@ export default function App() {
                       : `${prepared.files.length} files (${megabytes(prepared.bytes)}) are ready for the transfer to the IndiaNavi.`}
                   </Text>
                 )}
+                {prepared && !loading && (
+                  <Button title="Transfer to IndiaNavi" onPress={() => setScreen('transfer')} />
+                )}
               </>
             ) : (
               <View style={styles.empty}>
-                <Text style={styles.centered}>Open a GPX file to see the area of the map.</Text>
+                <Text style={styles.centered}>Open a GPX file or choose one of your tracks to see the area of the map.</Text>
+                <Button title="Open GPX" onPress={() => openGpx(pickGpxFile)} />
               </View>
             )}
           </>
@@ -264,12 +348,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
+  onDevice: {
+    fontWeight: 'normal',
+    color: '#1565c0',
+  },
   centered: {
     textAlign: 'center',
   },
   empty: {
     flex: 1,
     justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
   },
   row: {
     flexDirection: 'row',

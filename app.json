@@ -17,13 +17,31 @@
       "intentFilters": [
         {
           "action": "VIEW",
-          "category": ["DEFAULT", "BROWSABLE"],
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
           "data": [
-            { "scheme": "content", "mimeType": "application/gpx+xml" },
-            { "scheme": "content", "mimeType": "application/gpx" },
-            { "scheme": "content", "mimeType": "application/xml" },
-            { "scheme": "content", "mimeType": "text/xml" },
-            { "scheme": "content", "mimeType": "application/octet-stream" }
+            {
+              "scheme": "content",
+              "mimeType": "application/gpx+xml"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/gpx"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/xml"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "text/xml"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/octet-stream"
+            }
           ]
         }
       ],
@@ -44,6 +62,22 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The camera scans the WiFi QR code on the display of the IndiaNavi.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
         }
       ]
     ]

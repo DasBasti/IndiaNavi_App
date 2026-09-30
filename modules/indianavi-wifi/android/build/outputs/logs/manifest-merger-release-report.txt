@@ -1,0 +1,32 @@
+-- Merging decision tree log ---
+manifest
+ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:1:1-6:12
+INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:1:1-6:12
+	package
+		INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml
+	xmlns:android
+		ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:1:11-69
+uses-permission#android.permission.ACCESS_NETWORK_STATE
+ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:2:3-77
+	android:name
+		ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:2:20-74
+uses-permission#android.permission.CHANGE_NETWORK_STATE
+ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:3:3-77
+	android:name
+		ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:3:20-74
+uses-permission#android.permission.ACCESS_WIFI_STATE
+ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:4:3-74
+	android:name
+		ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:4:20-71
+uses-permission#android.permission.CHANGE_WIFI_STATE
+ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:5:3-74
+	android:name
+		ADDED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml:5:20-71
+uses-sdk
+INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml reason: use-sdk injection requested
+INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml
+INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml
+	android:targetSdkVersion
+		INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml
+	android:minSdkVersion
+		INJECTED from /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/AndroidManifest.xml

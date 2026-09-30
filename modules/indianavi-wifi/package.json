@@ -1,0 +1,7 @@
+{
+  "name": "indianavi-wifi",
+  "version": "1.0.0",
+  "description": "Connects the app to the WiFi access point of the IndiaNavi",
+  "main": "index.js",
+  "private": true
+}

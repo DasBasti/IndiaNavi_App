@@ -8,6 +8,6 @@ The tiles are then converted to raw images needed for the IndiaNavi
 - [x] Calcualate area to download
 - [x] Loop over all tiles and download
 - [x] Convert tile into raw image
-- [ ] Load the files to the device via Wifi
+- [x] Load the files to the device via Wifi
 - [ ] ???
 - [ ] Profit

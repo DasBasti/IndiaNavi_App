@@ -42,6 +42,26 @@ export const trackLines = (geojson) =>
         .map((line) => line.filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat)))
         .filter((line) => line.length > 0);
 
+const EARTH_RADIUS = 6371000;
+
+// Length of the lines of a GPX file in meters
+export const trackLength = (lines) => {
+
+    const rad = (deg) => deg * Math.PI / 180;
+    let length = 0;
+    for (const line of lines) {
+        for (let i = 1; i < line.length; i++) {
+            const [lon1, lat1] = line[i - 1];
+            const [lon2, lat2] = line[i];
+            const a = Math.sin(rad(lat2 - lat1) / 2) ** 2 +
+                Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lon2 - lon1) / 2) ** 2;
+            length += 2 * EARTH_RADIUS * Math.asin(Math.sqrt(a));
+        }
+    }
+    return length;
+
+}
+
 // Returns the area covered by the lines of a GPX file.
 // Returns null if there is neither a track nor a route in the file.
 export const calculateBoundaries = (lines) => {
