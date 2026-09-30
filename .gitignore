@@ -12,3 +12,7 @@ web-build/
 
 # macOS
 .DS_Store
+
+# build output of local Expo modules
+modules/*/android/build/
+modules/*/android/.gradle/

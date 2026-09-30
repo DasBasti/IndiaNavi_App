@@ -1,7 +1,0 @@
-tech.platinenmacher.indianaviwifi.indianavi-wifi-pngs-0 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/build/generated/res/pngs/release
-tech.platinenmacher.indianaviwifi.indianavi-wifi-resValues-1 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/build/generated/res/resValues/release
-tech.platinenmacher.indianaviwifi.indianavi-wifi-mergeReleaseResources-2 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/build/intermediates/incremental/release/mergeReleaseResources/merged.dir
-tech.platinenmacher.indianaviwifi.indianavi-wifi-mergeReleaseResources-3 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/build/intermediates/incremental/release/mergeReleaseResources/stripped.dir
-tech.platinenmacher.indianaviwifi.indianavi-wifi-release-4 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/build/intermediates/merged_res/release/mergeReleaseResources
-tech.platinenmacher.indianaviwifi.indianavi-wifi-main-5 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/main/res
-tech.platinenmacher.indianaviwifi.indianavi-wifi-release-6 /home/bastian/Projects/IndiaNavi/IndiaNavi_App/modules/indianavi-wifi/android/src/release/res
