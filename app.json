@@ -12,10 +12,21 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    "ios": {
-      "supportsTablet": true
-    },
     "android": {
+      "package": "tech.platinenmacher.indianavi_app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "scheme": "content", "mimeType": "application/gpx+xml" },
+            { "scheme": "content", "mimeType": "application/gpx" },
+            { "scheme": "content", "mimeType": "application/xml" },
+            { "scheme": "content", "mimeType": "text/xml" },
+            { "scheme": "content", "mimeType": "application/octet-stream" }
+          ]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
