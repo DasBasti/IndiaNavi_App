@@ -248,7 +248,7 @@ export default function App() {
         ) : (
           <>
             <View style={styles.row}>
-              <Text style={styles.title}>IndiaNavi</Text>
+              <Text style={styles.title}>Wander Navi</Text>
               <Button title="Tracks" onPress={() => setScreen('tracks')} disabled={loading} />
               <Button title="Filter" onPress={() => setScreen('filter')} disabled={loading} />
             </View>
