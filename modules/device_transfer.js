@@ -15,6 +15,10 @@ const PARALLEL_REQUESTS = 2;
 const RETRIES = 3;
 const INFO_TIMEOUT = 5000;
 const REQUEST_TIMEOUT = 30000;
+// Writing a firmware image of 1 to 2 MB to the flash of the device
+const FIRMWARE_TIMEOUT = 180000;
+// First byte of every ESP32 application image
+const FIRMWARE_MAGIC = 0xe9;
 
 // The card needs some space for the temporary file of an upload
 const SPACE_RESERVE = 1024 * 1024;
@@ -214,5 +218,40 @@ export const transferToDevice = async (base, files, { signal, onProgress } = {})
     }
 
     return { uploaded: upload.length, skipped: tiles.length - missing.length, bytes: bytesTotal };
+
+}
+
+// Reads a firmware image (.bin of the IndiaNavi firmware) from a picked file
+export const readFirmware = async (file) => {
+    const bytes = await (file instanceof File ? file : new File(file)).bytes();
+    if (bytes.length < 1024 || bytes[0] !== FIRMWARE_MAGIC) {
+        throw new Error("This is not a firmware file of the IndiaNavi");
+    }
+    return bytes;
+}
+
+// Installs the firmware image (bytes) on the device and restarts it. The device checks the image
+// and keeps the old firmware if anything is wrong. Returns once the device accepted the restart.
+export const updateFirmware = async (base, bytes, { signal } = {}) => {
+
+    const info = await getDeviceInfo(base, signal);
+    if (!info.ota) {
+        throw new Error("The firmware of the IndiaNavi can not be updated over WiFi. Update it with a cable once.");
+    }
+
+    const uploaded = await request(base, "PUT", "/api/firmware", {
+        body: bytes,
+        headers: { "Content-Type": "application/octet-stream" },
+        signal,
+        timeout: FIRMWARE_TIMEOUT,
+    });
+    if (uploaded.status !== 204) {
+        throw httpError("Firmware", uploaded);
+    }
+
+    const restarted = await request(base, "POST", "/api/restart", { signal, timeout: INFO_TIMEOUT });
+    if (restarted.status !== 204) {
+        throw httpError("Restart", restarted);
+    }
 
 }
