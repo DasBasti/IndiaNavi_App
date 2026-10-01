@@ -239,7 +239,7 @@ export default function App() {
           />
         ) : screen === 'transfer' ? (
           <TransferScreen
-            files={prepared.files}
+            files={prepared?.files ?? null}
             device={settings.device ?? {}}
             onDeviceChange={(device) => changeSettings({ device })}
             onTransferred={() => changeSettings({ deviceTrackId: track.id })}
@@ -247,10 +247,11 @@ export default function App() {
           />
         ) : (
           <>
-            <View style={styles.row}>
+            <View style={[styles.row, styles.wrap]}>
               <Text style={styles.title}>Wander Navi</Text>
               <Button title="Tracks" onPress={() => setScreen('tracks')} disabled={loading} />
               <Button title="Filter" onPress={() => setScreen('filter')} disabled={loading} />
+              <Button title="Device" onPress={() => setScreen('transfer')} disabled={loading} />
             </View>
 
             <TileServerSetting url={tileUrlTemplate} onChange={changeTileUrl} disabled={loading} />

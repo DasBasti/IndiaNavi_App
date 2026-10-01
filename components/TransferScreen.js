@@ -68,7 +68,8 @@ const progressText = (progress) => {
   }
 };
 
-// Connects to the IndiaNavi and copies the prepared files to its SD card.
+// Connects to the IndiaNavi, copies the prepared files to its SD card and updates its firmware.
+// files is null when no files are prepared, then only the firmware can be updated.
 // device holds the saved connection: { mode: 'accessPoint' | 'router', ssid, password, address }
 export default function TransferScreen({ files, device, onDeviceChange, onTransferred, onBack }) {
   const [mode, setMode] = useState(device.mode ?? 'accessPoint');
@@ -92,7 +93,7 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
   const [firmware, setFirmware] = useState(null);
 
   const busy = connecting || progress !== null || firmware === 'sending';
-  const bytes = files.reduce((sum, file) => sum + file.size, 0);
+  const bytes = files?.reduce((sum, file) => sum + file.size, 0) ?? 0;
 
   // leaving the screen ends the transfer and the connection to the access point
   useEffect(() => () => {
@@ -252,12 +253,14 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
       {(progress || firmware === 'sending') && <KeepAwake />}
       <View style={styles.row}>
         <Button title="‹ Back" onPress={onBack} disabled={busy} />
-        <Text style={styles.title}>Transfer</Text>
+        <Text style={styles.title}>IndiaNavi</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text>
-          {files.length} files ({megabytes(bytes)}) are ready on the phone.
+          {files
+            ? `${files.length} files (${megabytes(bytes)}) are ready on the phone.`
+            : 'No files are prepared. To send a track, choose it and tap Prepare SD card files on the main screen.'}
         </Text>
 
         <Text style={styles.subtitle}>Connection</Text>
@@ -336,7 +339,7 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        {connection && (
+        {connection && files && (
           <>
             <Text style={styles.subtitle}>Files</Text>
             {progress ? (
