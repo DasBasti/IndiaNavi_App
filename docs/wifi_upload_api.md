@@ -91,6 +91,8 @@ as `indianavi.local` or by its address in that network.
 | `POST /api/transfer` | announce how many files will be uploaded, shows progress on the display | recommended |
 | `GET /api/transfer` | read the progress of the announced transfer | optional |
 | `DELETE /api/transfer` | cancel the transfer, removes the progress from the display | optional |
+| `PUT /api/firmware` | install a new firmware image | optional |
+| `POST /api/restart` | restart the device, boots the installed firmware | optional |
 
 `{path}` and `{dir}` are relative to the root of the SD card and use `/` as separator.
 
@@ -105,6 +107,7 @@ Response `200`, `Content-Type: application/json`:
   "id": "MeinIndiaNavi",
   "firmware": "1.2.3",
   "api": 1,
+  "ota": true,
   "sd": { "present": true, "free": 1234567890, "total": 7948206080 }
 }
 ```
@@ -114,6 +117,7 @@ Response `200`, `Content-Type: application/json`:
 | `id` | `<id>` from `config.xml` |
 | `firmware` | firmware version, free text |
 | `api` | version of this API, `1` for this document |
+| `ota` | `true` if the device accepts `PUT /api/firmware`. Missing on older firmware |
 | `sd.present` | `false` if no SD card is mounted; `free` and `total` are `0` then |
 | `sd.free`, `sd.total` | bytes |
 
@@ -242,6 +246,30 @@ Cancels the transfer and removes the progress from the display, for example when
 the user cancels in the app. Files already stored stay on the card.
 
 Response `204`.
+
+### PUT /api/firmware (optional)
+
+Installs a firmware. The body is the application image (`firmware.bin`, the
+build output of the firmware project) as raw bytes with a `Content-Length`.
+
+The device writes it to the inactive OTA partition and checks the image. The
+running firmware is not touched, so a broken or interrupted upload changes
+nothing. Response `204` once the image is stored and selected for the next boot.
+
+| Status | When |
+|---|---|
+| `400` | the image is not valid |
+| `411` | no `Content-Length` |
+| `500` | no update partition, or the write failed |
+| `507` | the image is bigger than the update partition |
+
+Writing takes up to a minute. The app sends the request with a long timeout.
+
+### POST /api/restart (optional)
+
+Restarts the device after the answer was sent. Response `204`. After
+`PUT /api/firmware` the device boots the new firmware. The WiFi is gone for a
+short time, the app has to connect again.
 
 ## Errors
 

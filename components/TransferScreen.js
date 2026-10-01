@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { File } from 'expo-file-system';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 
@@ -11,7 +12,9 @@ import {
   deviceUrl,
   getDeviceInfo,
   isTimeout,
+  readFirmware,
   transferToDevice,
+  updateFirmware,
 } from '../modules/device_transfer';
 import {
   addWifiLostListener,
@@ -85,8 +88,10 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
   // { uploaded, skipped, bytes } of the finished transfer
   const [result, setResult] = useState(null);
   const abort = useRef(null);
+  // 'sending' while the firmware is written, 'restarted' when the device installs it
+  const [firmware, setFirmware] = useState(null);
 
-  const busy = connecting || progress !== null;
+  const busy = connecting || progress !== null || firmware === 'sending';
   const bytes = files.reduce((sum, file) => sum + file.size, 0);
 
   // leaving the screen ends the transfer and the connection to the access point
@@ -223,9 +228,28 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
     }
   };
 
+  const update = async () => {
+    setError(null);
+    setResult(null);
+    try {
+      const picked = await File.pickFileAsync();
+      if (picked.canceled) {
+        return;
+      }
+      const bytes = await readFirmware(picked.result);
+      setFirmware('sending');
+      await updateFirmware(connection.base, bytes);
+      setFirmware('restarted');
+      setConnection(null);
+    } catch (e) {
+      setFirmware(null);
+      setError(`Firmware update failed: ${e.message}`);
+    }
+  };
+
   return (
     <View style={styles.screen}>
-      {progress && <KeepAwake />}
+      {(progress || firmware === 'sending') && <KeepAwake />}
       <View style={styles.row}>
         <Button title="‹ Back" onPress={onBack} disabled={busy} />
         <Text style={styles.title}>Transfer</Text>
@@ -329,6 +353,27 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
               per second and shows the progress on its display.
             </Text>
           </>
+        )}
+
+        {connection && (
+          <>
+            <Text style={styles.subtitle}>Firmware</Text>
+            <Button
+              title={firmware === 'sending' ? 'Updating…' : 'Update firmware'}
+              onPress={update}
+              disabled={busy}
+            />
+            <Text style={styles.hint}>
+              Pick the firmware file (firmware.bin) of the IndiaNavi. The device checks it, restarts and starts the new
+              firmware. Keep the charger plugged in during the update.
+            </Text>
+          </>
+        )}
+
+        {firmware === 'restarted' && (
+          <Text style={styles.success}>
+            The firmware was sent. The IndiaNavi restarts with the new firmware, connect again in a minute.
+          </Text>
         )}
 
         {result && (
