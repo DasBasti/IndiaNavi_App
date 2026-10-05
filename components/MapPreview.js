@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Polyline, Rect } from 'react-native-svg';
 
+import { colors } from '../theme';
 import { tileUrl } from '../modules/tile_source';
 import { ZOOM_LEVELS, lat2world, lon2world, tileArea } from '../modules/tiles';
 
 const TILE_SIZE = 256;
 
-const AREA_COLORS = ['#1565c0', '#6a1b9a'];
+const AREA_COLORS = [colors.blue, colors.ink];
 
 // Color of the frame for the zoom level at the given position in ZOOM_LEVELS
 export const areaColor = (index) => AREA_COLORS[index % AREA_COLORS.length];
@@ -108,8 +109,8 @@ export default function MapPreview({ lines, bounds, margin, tileUrlTemplate }) {
                 key={index}
                 points={points}
                 fill="none"
-                stroke="#d32f2f"
-                strokeWidth={3}
+                stroke={colors.red}
+                strokeWidth={4}
                 strokeLinejoin="round"
                 strokeLinecap="round"
               />
@@ -129,7 +130,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   map: {
-    backgroundColor: '#ddd',
+    backgroundColor: colors.paper,
     overflow: 'hidden',
   },
   tile: {

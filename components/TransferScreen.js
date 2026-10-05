@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { BackHandler, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { BackHandler, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { File } from 'expo-file-system';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 
 import Button from './Button';
+import { Hint, Input, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
+import { colors } from '../theme';
 import {
   ACCESS_POINT_ADDRESS,
   DEFAULT_ROUTER_ADDRESS,
@@ -31,12 +33,6 @@ const KeepAwake = () => {
   useKeepAwake();
   return null;
 };
-
-const Progress = ({ done, total }) => (
-  <View style={styles.progress}>
-    <View style={[styles.progressBar, { width: `${(done / Math.max(total, 1)) * 100}%` }]} />
-  </View>
-);
 
 // Uses the WiFi of an IndiaNavi the phone is already connected to, for example from the WiFi settings.
 // Returns the connection { base, info, ssid, existing } or null.
@@ -251,29 +247,38 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
   return (
     <View style={styles.screen}>
       {(progress || firmware === 'sending') && <KeepAwake />}
-      <View style={styles.row}>
-        <Button title="‹ Back" onPress={onBack} disabled={busy} />
-        <Text style={styles.title}>IndiaNavi</Text>
-      </View>
+      <ScreenHeader title="IndiaNavi" icon={connection ? 'WIFI_3' : connecting ? 'WIFI_1' : 'WIFI_0'} onBack={onBack} disabled={busy} />
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text>
+        <Message tone={files ? 'green' : 'yellow'} icon={files ? 'SD' : 'noSD'}>
           {files
             ? `${files.length} files (${megabytes(bytes)}) are ready on the phone.`
             : 'No files are prepared. To send a track, choose it and tap Prepare SD card files on the main screen.'}
-        </Text>
+        </Message>
 
-        <Text style={styles.subtitle}>Connection</Text>
+        <SectionTitle>Connection</SectionTitle>
         <View style={styles.row}>
-          <Button title="WiFi of the IndiaNavi" onPress={() => setMode('accessPoint')} disabled={busy || mode === 'accessPoint'} />
-          <Button title="Router WiFi" onPress={() => setMode('router')} disabled={busy || mode === 'router'} />
+          <Button
+            title="WiFi of the IndiaNavi"
+            onPress={() => setMode('accessPoint')}
+            disabled={busy}
+            variant={mode === 'accessPoint' ? 'primary' : 'plain'}
+            compact
+          />
+          <Button
+            title="Router WiFi"
+            onPress={() => setMode('router')}
+            disabled={busy}
+            variant={mode === 'router' ? 'primary' : 'plain'}
+            compact
+          />
         </View>
 
         {mode === 'accessPoint' ? (
           <>
-            <Text style={styles.hint}>
+            <Hint>
               Plug in the charger of the IndiaNavi. The charging screen shows a QR code with the WiFi of the device.
-            </Text>
+            </Hint>
             {scanning ? (
               <>
                 <CameraView
@@ -282,21 +287,19 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
                   barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
                   onBarcodeScanned={scanned}
                 />
-                <Button title="Stop scanning" onPress={() => setScanning(false)} />
+                <Button title="Stop scanning" onPress={() => setScanning(false)} variant="danger" />
               </>
             ) : (
-              <Button title="Scan QR code" onPress={startScan} disabled={busy} />
+              <Button title="Scan QR code" icon="GPS_search" onPress={startScan} disabled={busy} variant="secondary" />
             )}
-            <TextInput
-              style={styles.input}
+            <Input
               value={ssid}
               onChangeText={setSsid}
               placeholder="WiFi name, for example IndiaNavi-E3ED"
               autoCapitalize="none"
               autoCorrect={false}
             />
-            <TextInput
-              style={styles.input}
+            <Input
               value={password}
               onChangeText={setPassword}
               placeholder="Password"
@@ -306,11 +309,10 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
           </>
         ) : (
           <>
-            <Text style={styles.hint}>
+            <Hint>
               The IndiaNavi joins the WiFi from the WIFI file on its SD card. The phone has to be in the same WiFi.
-            </Text>
-            <TextInput
-              style={styles.input}
+            </Hint>
+            <Input
               value={address}
               onChangeText={setAddress}
               placeholder="Address, for example indianavi.local"
@@ -323,67 +325,69 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
 
         <Button
           title={connecting ? 'Connecting…' : 'Connect'}
+          icon={connecting ? 'WIFI_1' : 'WIFI_3'}
           onPress={() => connect()}
           disabled={busy || (mode === 'router' && !address.trim())}
         />
 
         {connection && (
-          <Text style={styles.success}>
+          <Message tone="green" icon="WIFI_3">
             Connected to {connection.info.id} (firmware {connection.info.firmware})
             {connection.existing && ` in the WiFi ${connection.ssid ?? 'of the IndiaNavi'} the phone was already connected to`}.{' '}
             {connection.info.sd.present
               ? `SD card: ${megabytes(connection.info.sd.free)} free of ${megabytes(connection.info.sd.total)}.`
               : 'No SD card in the device.'}
-          </Text>
+          </Message>
         )}
 
-        {error && <Text style={styles.error}>{error}</Text>}
+        {error && <Message tone="red" icon="WIFI_0">{error}</Message>}
 
         {connection && files && (
           <>
-            <Text style={styles.subtitle}>Files</Text>
+            <SectionTitle>Files</SectionTitle>
             {progress ? (
               <>
-                <Progress done={progress.done} total={progress.total} />
-                <Text>{progressText(progress)}</Text>
-                <Button title="Cancel" onPress={() => abort.current?.abort()} />
+                <ProgressBar done={progress.done} total={progress.total} />
+                <Text style={styles.text}>{progressText(progress)}</Text>
+                <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" />
               </>
             ) : (
-              <Button title="Send to IndiaNavi" onPress={transfer} />
+              <Button title="Send to IndiaNavi" icon="SD" onPress={transfer} />
             )}
-            <Text style={styles.hint}>
+            <Hint>
               Tiles that are already on the SD card are skipped. The IndiaNavi stores about {FILES_PER_SECOND} tiles
               per second and shows the progress on its display.
-            </Text>
+            </Hint>
           </>
         )}
 
         {connection && (
           <>
-            <Text style={styles.subtitle}>Firmware</Text>
+            <SectionTitle>Firmware</SectionTitle>
             <Button
               title={firmware === 'sending' ? 'Updating…' : 'Update firmware'}
               onPress={update}
               disabled={busy}
+              variant="secondary"
             />
-            <Text style={styles.hint}>
+            <Hint>
               Pick the firmware file (firmware.bin) of the IndiaNavi. The device checks it, restarts and starts the new
               firmware. Keep the charger plugged in during the update.
-            </Text>
+            </Hint>
           </>
         )}
 
         {firmware === 'restarted' && (
-          <Text style={styles.success}>
+          <Message tone="green" icon="bat_100">
             The firmware was sent. The IndiaNavi restarts with the new firmware, connect again in a minute.
-          </Text>
+          </Message>
         )}
 
         {result && (
-          <Text style={styles.success}>
+          <Message tone="green" icon="SD">
             Done. {result.uploaded} files ({megabytes(result.bytes)}) sent, {result.skipped} tiles were already on
             the IndiaNavi. The new track is loaded when the device shows the map.
-          </Text>
+          </Message>
         )}
       </ScrollView>
     </View>
@@ -399,14 +403,7 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     paddingBottom: 24,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  subtitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    paddingRight: 4,
   },
   row: {
     flexDirection: 'row',
@@ -414,35 +411,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  hint: {
-    color: '#666',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#aaa',
-    borderRadius: 6,
-    padding: 8,
+  text: {
+    color: colors.ink,
   },
   camera: {
     height: 300,
-    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.ink,
     overflow: 'hidden',
-  },
-  progress: {
-    alignSelf: 'stretch',
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ddd',
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: 8,
-    backgroundColor: '#2e7d32',
-  },
-  error: {
-    color: '#c62828',
-  },
-  success: {
-    color: '#2e7d32',
   },
 });

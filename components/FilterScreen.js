@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import Button from './Button';
+import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
+import { BORDER, colors, font } from '../theme';
 import { DEFAULT_FILTER, DISPLAY_COLORS, convertPixels, findFilterEntry } from '../modules/map_color';
 import { encodePalettePng, pngDataUri } from '../modules/png';
 import { fetchTile } from '../modules/tile_loader';
@@ -37,7 +39,7 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
     <View style={styles.row}>
       <Swatch rgb={entry.rgb} />
       <Text style={styles.hex}>{hex(entry.rgb)}</Text>
-      <Text>→</Text>
+      <Text style={styles.arrow}>→</Text>
       {entry.colors.map((color, slot) => (
         <Swatch
           key={slot}
@@ -48,13 +50,15 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
       ))}
       {entry.colors.length === 1 && (
         <Pressable onPress={() => onEdit(editing === 1 ? null : 1)} style={[styles.addColor, editing === 1 && styles.swatchSelected]}>
-          <Text>+</Text>
+          <Text style={styles.plus}>+</Text>
         </Pressable>
       )}
       <View style={styles.spacer} />
       {onDelete && (
         <Pressable onPress={onDelete} hitSlop={8}>
-          <Text style={styles.delete}>✕</Text>
+          <View style={styles.delete}>
+            <Text style={styles.deleteText}>✕</Text>
+          </View>
         </Pressable>
       )}
     </View>
@@ -73,7 +77,7 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
           />
         ))}
         {editing === 1 && entry.colors.length === 2 && (
-          <Button title="No dither" onPress={() => {
+          <Button title="No dither" variant="plain" compact onPress={() => {
             onEdit(null);
             onChange({ ...entry, colors: [entry.colors[0]] });
           }} />
@@ -178,23 +182,26 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
 
   return (
     <View style={styles.screen}>
-      <View style={styles.row}>
-        <Button title="‹ Back" onPress={onBack} />
-        <Text style={styles.title}>Conversion filter</Text>
-      </View>
+      <ScreenHeader title="Conversion filter" onBack={onBack} />
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.row}>
           {ZOOM_LEVELS.map((zoom) => (
-            <Button key={zoom} title={`Zoom ${zoom}`} onPress={() => changeZoom(zoom)} disabled={zoom === tile.zoom} />
+            <Button
+              key={zoom}
+              title={`Zoom ${zoom}`}
+              onPress={() => changeZoom(zoom)}
+              variant={zoom === tile.zoom ? 'primary' : 'plain'}
+              compact
+            />
           ))}
         </View>
         <View style={styles.row}>
-          <Button title="←" onPress={() => move(-1, 0)} />
-          <Button title="↑" onPress={() => move(0, -1)} />
-          <Button title="↓" onPress={() => move(0, 1)} />
-          <Button title="→" onPress={() => move(1, 0)} />
-          <Text>{tile.zoom}/{tile.x}/{tile.y}</Text>
+          <Button title="←" onPress={() => move(-1, 0)} variant="plain" compact />
+          <Button title="↑" onPress={() => move(0, -1)} variant="plain" compact />
+          <Button title="↓" onPress={() => move(0, 1)} variant="plain" compact />
+          <Button title="→" onPress={() => move(1, 0)} variant="plain" compact />
+          <Text style={styles.hex}>{tile.zoom}/{tile.x}/{tile.y}</Text>
         </View>
 
         <View style={styles.images}>
@@ -214,42 +221,42 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
           ))}
         </View>
         {error ? (
-          <Text style={styles.error}>{error}</Text>
+          <Message tone="red">{error}</Message>
         ) : (
-          <Text style={styles.hint}>
+          <Hint>
             {image ? 'Original and converted tile. Tap a pixel to see its filter entry.' : 'Loading tile…'}
-          </Text>
+          </Hint>
         )}
 
         {picked && (
           <View style={styles.section}>
             <View style={styles.row}>
-              <Text>Pixel</Text>
+              <Text style={styles.text}>Pixel</Text>
               <Swatch rgb={picked.rgb} />
               <Text style={styles.hex}>{hex(picked.rgb)}</Text>
-              <Text>uses</Text>
+              <Text style={styles.text}>uses</Text>
             </View>
             {renderEntry(pickedEntry)}
             {!sameRgb(draft[pickedEntry].rgb, picked.rgb) && (
-              <Button title={`Add ${hex(picked.rgb)} as own entry`} onPress={addPickedColor} />
+              <Button title={`Add ${hex(picked.rgb)} as own entry`} onPress={addPickedColor} variant="secondary" />
             )}
           </View>
         )}
 
         <View style={styles.row}>
           <Button title="Apply" onPress={() => onApply(draft)} disabled={draft === filter} />
-          <Button title="Undo" onPress={() => setDraft(filter)} disabled={draft === filter} />
-          <Button title="Default" onPress={() => setDraft(DEFAULT_FILTER)} disabled={draft === DEFAULT_FILTER} />
+          <Button title="Undo" onPress={() => setDraft(filter)} disabled={draft === filter} variant="plain" />
+          <Button title="Default" onPress={() => setDraft(DEFAULT_FILTER)} disabled={draft === DEFAULT_FILTER} variant="secondary" />
         </View>
-        <Text style={styles.hint}>
+        <Hint>
           Apply uses the filter for all tiles. Tiles already converted on the phone are deleted and loaded again.
-        </Text>
+        </Hint>
 
-        <Text style={styles.subtitle}>Filter entries</Text>
-        <Text style={styles.hint}>
+        <SectionTitle>Filter entries</SectionTitle>
+        <Hint>
           Every pixel gets the display colors of the entry with the most similar color.
           Two display colors are drawn as checkerboard.
-        </Text>
+        </Hint>
         {draft.map((_, index) => renderEntry(index))}
       </ScrollView>
     </View>
@@ -265,14 +272,7 @@ const styles = StyleSheet.create({
   content: {
     gap: 12,
     paddingBottom: 24,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  subtitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    paddingRight: 4,
   },
   row: {
     flexDirection: 'row',
@@ -283,26 +283,34 @@ const styles = StyleSheet.create({
   spacer: {
     flex: 1,
   },
+  text: {
+    color: colors.ink,
+  },
+  arrow: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.ink,
+  },
+  plus: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.ink,
+  },
   images: {
     flexDirection: 'row',
     gap: GAP,
   },
   image: {
-    backgroundColor: '#ddd',
+    backgroundColor: colors.paper,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
   },
   marker: {
     position: 'absolute',
     width: 16,
     height: 16,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#e91e63',
-  },
-  hint: {
-    color: '#666',
-  },
-  error: {
-    color: '#c62828',
+    borderWidth: 3,
+    borderColor: colors.red,
   },
   section: {
     gap: 8,
@@ -310,38 +318,47 @@ const styles = StyleSheet.create({
   entry: {
     gap: 8,
     padding: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.paper,
   },
   entryHighlighted: {
-    borderColor: '#e91e63',
-    borderWidth: 2,
+    backgroundColor: colors.yellow,
   },
   swatch: {
-    borderWidth: 1,
-    borderColor: '#888',
-    borderRadius: 4,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
   },
   swatchSelected: {
-    borderWidth: 3,
-    borderColor: '#e91e63',
+    borderColor: colors.blue,
+    borderWidth: 4,
   },
   addColor: {
     width: 28,
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    borderWidth: BORDER,
     borderStyle: 'dashed',
-    borderColor: '#888',
-    borderRadius: 4,
+    borderColor: colors.ink,
+    backgroundColor: colors.paper,
   },
   hex: {
-    fontFamily: 'monospace',
+    fontFamily: font.mono,
+    color: colors.ink,
   },
   delete: {
-    fontSize: 18,
-    color: '#c62828',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.red,
+  },
+  deleteText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: colors.paper,
   },
 });
