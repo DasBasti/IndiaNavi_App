@@ -1,0 +1,46 @@
+# Builds the release APK on every push to main and to release branches.
+# Based on https://github.com/marketplace/actions/automated-build-android-app-with-github-action
+name: Build APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'release/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set date and branch as env variables
+        run: |
+          echo "date_today=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "branch=$(echo '${{ github.ref_name }}' | tr '/' '-')" >> $GITHUB_ENV
+
+      # The Android Gradle plugin fails with JDKs newer than 21
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'yarn'
+
+      - name: Build APK
+        run: ./build.sh release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.date_today }} - Wander Navi - ${{ env.branch }} - ${{ github.sha }}
+          path: dist/*.apk
+          if-no-files-found: error
