@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import Button from './Button';
+import Icon from './Icon';
+import { Badge, Card, Hint, ScreenHeader } from './ui';
+import { BORDER, colors, font } from '../theme';
 import { deleteTrack, listTracks } from '../modules/track_library';
 
 const kilometers = (meters) => `${(meters / 1000).toFixed(1)} km`;
@@ -23,44 +26,44 @@ export default function TracksScreen({ selectedId, deviceTrackId, onSelect, onOp
 
   return (
     <View style={styles.screen}>
-      <View style={styles.row}>
-        <Button title="‹ Back" onPress={onBack} />
-        <Text style={styles.title}>Tracks</Text>
-      </View>
+      <ScreenHeader title="Tracks" icon="path" onBack={onBack} />
 
-      <Button title="Open GPX file" onPress={onOpenGpx} />
-      <Text style={styles.hint}>
+      <Button title="Open GPX file" icon="GPS" onPress={onOpenGpx} />
+      <Hint>
         Choose the track for the IndiaNavi. Its map is prepared and it is sent to the device as track.gpx.
-      </Text>
+      </Hint>
 
       <ScrollView contentContainerStyle={styles.list}>
-        {tracks.length === 0 && <Text style={styles.hint}>No tracks yet. Open a GPX file to add one.</Text>}
+        {tracks.length === 0 && <Hint>No tracks yet. Open a GPX file to add one.</Hint>}
         {tracks.map((track) => (
-          <Pressable
+          <Card
             key={track.id}
             onPress={() => onSelect(track)}
-            style={[styles.track, track.id === selectedId && styles.selected]}>
+            color={track.id === selectedId ? colors.green : colors.paper}
+            selected={track.id === selectedId}
+            style={styles.track}>
+            <Icon name="path" size={32} />
             <View style={styles.details}>
               <Text style={styles.name} numberOfLines={2}>{track.name}</Text>
-              <Text style={styles.hint}>
+              <Text style={styles.meta}>
                 {kilometers(track.length)} · added {date(track.addedAt)}
               </Text>
               <View style={styles.row}>
-                {track.id === selectedId && <Text style={[styles.badge, styles.selectedBadge]}>selected</Text>}
-                {track.id === deviceTrackId && <Text style={[styles.badge, styles.deviceBadge]}>on the IndiaNavi</Text>}
+                {track.id === selectedId && <Badge color={colors.ink}>selected</Badge>}
+                {track.id === deviceTrackId && <Badge color={colors.blue}>on the IndiaNavi</Badge>}
               </View>
             </View>
             {deleting === track.id ? (
               <View style={styles.row}>
-                <Button title="Delete" onPress={() => remove(track.id)} />
-                <Button title="Keep" onPress={() => setDeleting(null)} />
+                <Button title="Delete" onPress={() => remove(track.id)} variant="danger" compact />
+                <Button title="Keep" onPress={() => setDeleting(null)} variant="plain" compact />
               </View>
             ) : (
-              <Pressable onPress={() => setDeleting(track.id)} hitSlop={12}>
-                <Text style={styles.delete}>✕</Text>
+              <Pressable onPress={() => setDeleting(track.id)} hitSlop={12} style={styles.delete}>
+                <Text style={styles.deleteText}>✕</Text>
               </Pressable>
             )}
-          </Pressable>
+          </Card>
         ))}
       </ScrollView>
     </View>
@@ -73,10 +76,6 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     gap: 12,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
   row: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -84,49 +83,40 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   list: {
-    gap: 8,
+    gap: 12,
     paddingBottom: 24,
+    paddingRight: 4,
   },
   track: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
-  },
-  selected: {
-    borderColor: '#2e7d32',
-    borderWidth: 2,
   },
   details: {
     flex: 1,
     gap: 4,
   },
   name: {
+    fontFamily: font.mono,
     fontWeight: 'bold',
+    color: colors.ink,
   },
-  hint: {
-    color: '#666',
-  },
-  badge: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  selectedBadge: {
-    backgroundColor: '#2e7d32',
-  },
-  deviceBadge: {
-    backgroundColor: '#1565c0',
+  meta: {
+    fontSize: 13,
+    color: colors.ink,
   },
   delete: {
-    fontSize: 18,
-    color: '#c62828',
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.red,
+  },
+  deleteText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.paper,
   },
 });

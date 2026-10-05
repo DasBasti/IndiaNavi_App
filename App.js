@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { BackHandler, Linking, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import Button from './components/Button';
+import Icon from './components/Icon';
 import FilterScreen from './components/FilterScreen';
 import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
 import MapPreview, { areaColor } from './components/MapPreview';
 import TileServerSetting from './components/TileServerSetting';
+import { Badge, Card, Message, PaletteStrip, ProgressBar } from './components/ui';
 
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER } from './modules/map_color';
 import { deleteTiles, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
 import { loadSettings, saveSettings } from './modules/settings';
+import { BORDER, PAGE_PADDING, SHADOW, colors, font, shadow } from './theme';
 import { loadTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
 import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, trackLength, trackLines, zoomMargin } from './modules/tiles';
@@ -52,6 +55,18 @@ const selectedTrack = (id) => {
     return null;
   }
 };
+
+// Tile of the main navigation: icon with a label below
+const NavTile = ({ label, children, onPress, disabled }) => (
+  <Pressable
+    onPress={onPress}
+    disabled={disabled}
+    accessibilityRole="button"
+    style={({ pressed }) => [styles.navTile, disabled ? styles.navDisabled : pressed ? styles.navPressed : shadow]}>
+    <View style={styles.navIcon}>{children}</View>
+    <Text style={styles.navLabel}>{label}</Text>
+  </Pressable>
+);
 
 export default function App() {
   const [settings, setSettings] = useState(loadSettings);
@@ -247,81 +262,99 @@ export default function App() {
           />
         ) : (
           <>
-            <View style={[styles.row, styles.wrap]}>
+            <View style={styles.header}>
+              <Icon name="norden" size={40} />
               <Text style={styles.title}>Wander Navi</Text>
-              <Button title="Tracks" onPress={() => setScreen('tracks')} disabled={loading} />
-              <Button title="Filter" onPress={() => setScreen('filter')} disabled={loading} />
-              <Button title="Device" onPress={() => setScreen('transfer')} disabled={loading} />
+            </View>
+
+            <View style={styles.nav}>
+              <NavTile label="Tracks" onPress={() => setScreen('tracks')} disabled={loading}>
+                <Icon name="path" size={32} />
+              </NavTile>
+              <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
+                <PaletteStrip size={8} />
+              </NavTile>
+              <NavTile label="Device" onPress={() => setScreen('transfer')} disabled={loading}>
+                <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
+              </NavTile>
             </View>
 
             <TileServerSetting url={tileUrlTemplate} onChange={changeTileUrl} disabled={loading} />
 
-            {error && <Text style={styles.error}>{error}</Text>}
+            {error && <Message tone="red" icon="noSD">{error}</Message>}
 
             {track ? (
               <>
-                <Text style={styles.name} numberOfLines={1}>
-                  {track.name}
-                  {track.id === settings.deviceTrackId && <Text style={styles.onDevice}> · on the IndiaNavi</Text>}
-                </Text>
+                <View style={styles.trackName}>
+                  <Icon name="path" size={32} />
+                  <Text style={styles.name} numberOfLines={1}>{track.name}</Text>
+                  {track.id === settings.deviceTrackId && <Badge color={colors.blue}>on the IndiaNavi</Badge>}
+                </View>
 
-                <MapPreview lines={track.lines} bounds={track.bounds} margin={margin} tileUrlTemplate={tileUrlTemplate} />
+                <View style={styles.map}>
+                  <MapPreview lines={track.lines} bounds={track.bounds} margin={margin} tileUrlTemplate={tileUrlTemplate} />
+                </View>
 
-                <View style={[styles.row, styles.wrap]}>
+                <View style={styles.legends}>
                   {ZOOM_LEVELS.map((zoom, index) => (
                     <View key={zoom} style={styles.legend}>
                       <View style={[styles.legendFrame, { borderColor: areaColor(index) }]} />
-                      <Text>
+                      <Text style={styles.small}>
                         Zoom {zoom}: {countTiles(track.bounds, margin, zoom)} tiles, margin {zoomMargin(margin, zoom)}
                       </Text>
                     </View>
                   ))}
                 </View>
-                <Text style={styles.centered}>
-                  {tiles.length} tiles from {tileServerName(tileUrlTemplate)}, {megabytes(tiles.length * RAW_TILE_BYTES)} on the SD card
-                </Text>
+
+                <Card style={styles.summary}>
+                  <Icon name="SD" size={32} />
+                  <Text style={styles.summaryText}>
+                    {tiles.length} tiles from {tileServerName(tileUrlTemplate)}
+                    {'\n'}{megabytes(tiles.length * RAW_TILE_BYTES)} on the SD card
+                  </Text>
+                </Card>
 
                 <View style={styles.row}>
-                  <Text>Margin: {margin} tiles</Text>
-                  <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} />
-                  <Button title="+" onPress={() => changeMargin(1)} disabled={loading} />
+                  <Text style={styles.marginText}>Margin: {margin} tiles</Text>
+                  <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
+                  <Button title="+" onPress={() => changeMargin(1)} disabled={loading} variant="plain" compact />
                 </View>
 
                 {loading ? (
                   <>
-                    <View style={styles.progress}>
-                      <View style={[styles.progressBar, { width: `${(progress.done / Math.max(progress.total, 1)) * 100}%` }]} />
-                    </View>
+                    <ProgressBar done={progress.done} total={progress.total} />
                     <View style={styles.row}>
-                      <Text>
+                      <Text style={styles.small}>
                         {progress.done}/{progress.total} tiles
                         {progress.failed > 0 && `, ${progress.failed} failed`}
                       </Text>
-                      <Button title="Cancel" onPress={() => abort.current?.abort()} />
+                      <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" compact />
                     </View>
                   </>
                 ) : (
                   <Button
                     title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
+                    icon="SD"
                     onPress={prepare}
                   />
                 )}
 
                 {prepared && (
-                  <Text style={prepared.failed ? styles.error : styles.success}>
+                  <Message tone={prepared.failed ? 'red' : 'green'} icon={prepared.failed ? 'noSD' : 'SD'}>
                     {prepared.failed
                       ? `${prepared.failed} tiles could not be loaded (${prepared.reason}).`
                       : `${prepared.files.length} files (${megabytes(prepared.bytes)}) are ready for the transfer to the IndiaNavi.`}
-                  </Text>
+                  </Message>
                 )}
                 {prepared && !loading && (
-                  <Button title="Transfer to IndiaNavi" onPress={() => setScreen('transfer')} />
+                  <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => setScreen('transfer')} />
                 )}
               </>
             ) : (
               <View style={styles.empty}>
+                <Icon name="path" size={96} />
                 <Text style={styles.centered}>Open a GPX file or choose one of your tracks to see the area of the map.</Text>
-                <Button title="Open GPX" onPress={() => openGpx(pickGpxFile)} />
+                <Button title="Open GPX" icon="GPS" onPress={() => openGpx(pickGpxFile)} />
               </View>
             )}
           </>
@@ -336,40 +369,109 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    padding: 16,
+    backgroundColor: colors.paper,
+    alignItems: 'stretch',
+    padding: PAGE_PADDING,
     gap: 12,
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 10,
+    borderBottomWidth: BORDER,
+    borderBottomColor: colors.ink,
+  },
   title: {
+    fontFamily: font.mono,
     fontSize: 24,
     fontWeight: 'bold',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    color: colors.ink,
+  },
+  nav: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  navTile: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.yellow,
+    marginRight: SHADOW,
+    marginBottom: SHADOW,
+  },
+  navPressed: {
+    transform: [{ translateX: SHADOW }, { translateY: SHADOW }],
+  },
+  navDisabled: {
+    backgroundColor: colors.paper,
+    borderStyle: 'dashed',
+    opacity: 0.5,
+  },
+  navIcon: {
+    height: 32,
+    justifyContent: 'center',
+  },
+  navLabel: {
+    fontFamily: font.mono,
+    fontWeight: 'bold',
+    fontSize: 13,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
+  trackName: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   name: {
+    flexShrink: 1,
+    fontFamily: font.mono,
     fontWeight: 'bold',
-    textAlign: 'center',
+    fontSize: 16,
+    color: colors.ink,
   },
-  onDevice: {
-    fontWeight: 'normal',
-    color: '#1565c0',
+  map: {
+    flex: 1,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.paper,
   },
   centered: {
     textAlign: 'center',
+    color: colors.ink,
+  },
+  small: {
+    fontSize: 13,
+    color: colors.ink,
   },
   empty: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    justifyContent: 'center',
+    gap: 12,
   },
-  wrap: {
+  marginText: {
+    fontFamily: font.mono,
+    fontWeight: 'bold',
+    color: colors.ink,
+  },
+  legends: {
+    flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
+    columnGap: 16,
     rowGap: 4,
   },
   legend: {
@@ -380,25 +482,16 @@ const styles = StyleSheet.create({
   legendFrame: {
     width: 14,
     height: 14,
-    borderWidth: 2,
+    borderWidth: 3,
   },
-  progress: {
-    alignSelf: 'stretch',
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ddd',
-    overflow: 'hidden',
+  summary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: colors.paper,
   },
-  progressBar: {
-    height: 8,
-    backgroundColor: '#2e7d32',
-  },
-  error: {
-    color: '#c62828',
-    textAlign: 'center',
-  },
-  success: {
-    color: '#2e7d32',
-    textAlign: 'center',
+  summaryText: {
+    flex: 1,
+    color: colors.ink,
   },
 });
