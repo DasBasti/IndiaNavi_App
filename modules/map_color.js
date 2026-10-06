@@ -1,15 +1,17 @@
 // Converts map tiles to the 7 color raw format of the IndiaNavi display.
 // This is a port of indianavi_map_color from the IndiaNavi converter.
 
-// Colors of the display, the position in the list is the raw value of the color
+// Colors of the display, the position in the list is the raw value of the color.
+// panel is how the color looks on the ACeP 5.65" display (measured by Pimoroni for the Inky Impression 5.7"),
+// the previews use it so they look like the device.
 export const DISPLAY_COLORS = [
-    { name: "Black", rgb: [0, 0, 0] },
-    { name: "White", rgb: [255, 255, 255] },
-    { name: "Green", rgb: [0, 255, 0] },
-    { name: "Blue", rgb: [0, 0, 255] },
-    { name: "Red", rgb: [255, 0, 0] },
-    { name: "Yellow", rgb: [255, 255, 50] },
-    { name: "Orange", rgb: [255, 127, 0] },
+    { name: "Black", rgb: [0, 0, 0], panel: [57, 48, 57] },
+    { name: "White", rgb: [255, 255, 255], panel: [255, 255, 255] },
+    { name: "Green", rgb: [0, 255, 0], panel: [58, 91, 70] },
+    { name: "Blue", rgb: [0, 0, 255], panel: [61, 59, 94] },
+    { name: "Red", rgb: [255, 0, 0], panel: [156, 72, 75] },
+    { name: "Yellow", rgb: [255, 255, 50], panel: [208, 190, 71] },
+    { name: "Orange", rgb: [255, 127, 0], panel: [177, 106, 73] },
 ];
 
 const BLACK = 0;
@@ -57,28 +59,64 @@ export const rgbToLab = (red, green, blue) => {
 
 }
 
-// A filter is a list of { rgb, colors }. Every pixel of the map gets the display colors of
-// the entry with the most similar rgb color. Two display colors are dithered in a checkerboard pattern.
+// A filter is a list of { rgb, colors, share }. Every pixel of the map gets the display colors of
+// the entry with the most similar rgb color. With two display colors, share is the part of the second
+// color (0.5 if it is missing). They are mixed with an ordered dither pattern, at 0.5 it is a checkerboard.
+// The default is made for the outdoors map of thunderforest.com.
 export const DEFAULT_FILTER = [
-    { rgb: [255, 255, 255], colors: [WHITE] },
-    { rgb: [0, 0, 0], colors: [BLACK] },
-    { rgb: [0x90, 0x90, 0x90], colors: [BLACK] },
+    // paper, residential land and track fills stay white
+    { rgb: [0xff, 0xff, 0xff], colors: [WHITE] },
+    { rgb: [0xf6, 0xf8, 0xd5], colors: [WHITE] },
+    { rgb: [0xe3, 0xe3, 0xde], colors: [WHITE] },
+    { rgb: [0xf3, 0xf3, 0xdf], colors: [WHITE] },
+    // main road fill
+    { rgb: [0xff, 0xff, 0xd3], colors: [WHITE, YELLOW], share: 1 / 2 },
+    // buildings and strong hillshading
+    { rgb: [0xce, 0xce, 0xcd], colors: [WHITE, BLACK], share: 1 / 8 },
+    // forest, a bit denser on the shaded side, meadows light
+    { rgb: [0xd6, 0xef, 0xca], colors: [WHITE, GREEN], share: 1 / 4 },
+    { rgb: [0xbd, 0xd3, 0xb4], colors: [WHITE, GREEN], share: 3 / 8 },
+    { rgb: [0xed, 0xf8, 0xd9], colors: [WHITE, GREEN], share: 1 / 16 },
+    { rgb: [0xd0, 0xe7, 0x8d], colors: [WHITE, GREEN], share: 3 / 8 },
+    // water areas and streams
+    { rgb: [0xab, 0xde, 0xff], colors: [WHITE, BLUE], share: 1 / 4 },
+    { rgb: [0x43, 0x9a, 0xd4], colors: [BLUE] },
+    { rgb: [0x00, 0x00, 0xff], colors: [BLUE] },
+    // text and lines
+    { rgb: [0x00, 0x00, 0x00], colors: [BLACK] },
     { rgb: [0x6b, 0x6b, 0x6b], colors: [BLACK] },
-    { rgb: [0, 0, 255], colors: [BLUE] },
-    { rgb: [255, 0, 0], colors: [RED] },
-    { rgb: [0, 255, 0], colors: [GREEN] },
-    { rgb: [255, 127, 0], colors: [ORANGE] },
-    { rgb: [255, 255, 0], colors: [YELLOW] },
-    { rgb: [0x5c, 0x5c, 0xd4], colors: [BLUE] },
-    { rgb: [0xc9, 0x73, 0x66], colors: [RED] },
-    { rgb: [127, 127, 127], colors: [BLACK, WHITE] },
-    { rgb: [255, 255, 155], colors: [YELLOW, WHITE] },
-    { rgb: [64, 255, 64], colors: [GREEN] },
-    { rgb: [191, 255, 191], colors: [GREEN, WHITE] },
-    { rgb: [212, 250, 212], colors: [GREEN, WHITE] },
-    { rgb: [251, 212, 157], colors: [RED, WHITE] },
-    { rgb: [127, 0, 255], colors: [RED, BLUE] },
+    { rgb: [0x90, 0x90, 0x90], colors: [BLACK] },
+    // strong colors of routes, roads and symbols
+    { rgb: [0xff, 0x00, 0x00], colors: [RED] },
+    { rgb: [0xd6, 0x7b, 0x74], colors: [RED] },
+    { rgb: [0x6a, 0x69, 0xe0], colors: [BLUE] },
+    { rgb: [0xb1, 0x6a, 0xca], colors: [RED, BLUE], share: 1 / 2 },
+    { rgb: [0x00, 0xff, 0x00], colors: [GREEN] },
+    { rgb: [0x3d, 0x90, 0x42], colors: [GREEN] },
+    { rgb: [0x9e, 0xd1, 0x95], colors: [GREEN] },
+    { rgb: [0xff, 0x7f, 0x00], colors: [ORANGE] },
+    { rgb: [0xff, 0xff, 0x00], colors: [YELLOW] },
+    { rgb: [0xff, 0xff, 0x9b], colors: [WHITE, YELLOW], share: 1 / 2 },
+    { rgb: [0xfb, 0xd4, 0x9d], colors: [WHITE, RED], share: 1 / 4 },
 ];
+
+// Steps of the dither pattern, the share of an entry is rounded to them
+export const SHARE_STEPS = 64;
+
+// 8x8 Bayer matrix with the values 0..63. Tiles are 256 pixels wide, so the pattern continues over the tile borders.
+const BAYER = (() => {
+    let matrix = [[0]];
+    while (matrix.length < 8) {
+        const n = matrix.length;
+        matrix = Array.from({ length: 2 * n }, (_, y) => Array.from({ length: 2 * n }, (_, x) =>
+            4 * matrix[y % n][x % n] + [[0, 2], [3, 1]][Math.floor(y / n)][Math.floor(x / n)]));
+    }
+    return matrix.flat();
+})();
+
+// Number of pattern positions out of SHARE_STEPS that get the first color of the entry
+const firstColorSteps = ({ colors, share = 0.5 }) =>
+    colors.length === 1 ? SHARE_STEPS : Math.round((1 - share) * SHARE_STEPS);
 
 // Tiles only use a few colors, so the result of the color search is kept
 const MAX_CACHED_COLORS = 1 << 16;
@@ -128,15 +166,65 @@ export const findFilterEntry = (filter, r, g, b) => {
 
 }
 
+// A pixel that is darker than the lightest pixel around it by more than this (in L*) is part of a line
+// or text. It is drawn solid in the darker color of its entry, so lines are not broken by the dither pattern.
+export const LINE_CONTRAST = 14;
+
+// L* of the display colors, to find the darker color of an entry
+const PANEL_LIGHTNESS = DISPLAY_COLORS.map(({ panel }) => rgbToLab(...panel)[0]);
+
+const darkerColor = ({ colors }) =>
+    colors.reduce((darker, color) => (PANEL_LIGHTNESS[color] < PANEL_LIGHTNESS[darker] ? color : darker));
+
+const lightnessCache = new Map();
+
+const lightness = (r, g, b) => {
+    const key = (r << 16) | (g << 8) | b;
+    let l = lightnessCache.get(key);
+    if (l === undefined) {
+        if (lightnessCache.size >= MAX_CACHED_COLORS) {
+            lightnessCache.clear();
+        }
+        l = rgbToLab(r, g, b)[0];
+        lightnessCache.set(key, l);
+    }
+    return l;
+}
+
 // Takes RGBA pixels and returns the raw display color of every pixel
 export const convertPixels = (rgba, width, height, filter = DEFAULT_FILTER) => {
 
+    const steps = filter.map(firstColorSteps);
+    const lineColors = filter.map(darkerColor);
+    const entries = new Uint16Array(width * height);
+    const lightnesses = new Float32Array(width * height);
+    for (let i = 0; i < entries.length; i++) {
+        const [r, g, b] = [rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]];
+        entries[i] = findFilterEntry(filter, r, g, b);
+        lightnesses[i] = lightness(r, g, b);
+    }
+
     const pixels = new Uint8Array(width * height);
-    for (let i = 0; i < pixels.length; i++) {
-        const { colors } = filter[findFilterEntry(filter, rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2])];
-        const x = i % width;
-        const y = (i - x) / width;
-        pixels[i] = colors.length === 1 || (x + y) % 2 === 0 ? colors[0] : colors[1];
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const i = y * width + x;
+            const index = entries[i];
+
+            // the pixels at the border of the tile only compare with the pixels inside the tile
+            let lightest = lightnesses[i];
+            for (let ny = Math.max(y - 1, 0); ny <= Math.min(y + 1, height - 1); ny++) {
+                for (let nx = Math.max(x - 1, 0); nx <= Math.min(x + 1, width - 1); nx++) {
+                    lightest = Math.max(lightest, lightnesses[ny * width + nx]);
+                }
+            }
+
+            const { colors } = filter[index];
+            if (lightest - lightnesses[i] > LINE_CONTRAST) {
+                pixels[i] = lineColors[index];
+            } else {
+                pixels[i] = BAYER[(y % 8) * 8 + x % 8] < steps[index] ? colors[0] : colors[colors.length - 1];
+            }
+        }
     }
     return pixels;
 

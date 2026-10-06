@@ -37,7 +37,8 @@ const isView = (view) =>
 
 const isFilter = (filter) =>
   Array.isArray(filter) && filter.length > 0 &&
-  filter.every(({ rgb, colors }) => Array.isArray(rgb) && rgb.length === 3 && Array.isArray(colors) && colors.length > 0);
+  filter.every(({ rgb, colors, share }) => Array.isArray(rgb) && rgb.length === 3 && Array.isArray(colors) && colors.length > 0 &&
+    (share === undefined || (share >= 0 && share <= 1)));
 
 // Reads the lines of a GPX file, returns { lines, bounds }
 const readLines = (name, text) => {

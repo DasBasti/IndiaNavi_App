@@ -4,7 +4,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensio
 import Button from './Button';
 import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
-import { DEFAULT_FILTER, DISPLAY_COLORS, convertPixels, findFilterEntry } from '../modules/map_color';
+import { DEFAULT_FILTER, DISPLAY_COLORS, SHARE_STEPS, convertPixels, findFilterEntry } from '../modules/map_color';
 import { encodePalettePng, pngDataUri } from '../modules/png';
 import { fetchTile } from '../modules/tile_loader';
 import { ZOOM_LEVELS } from '../modules/tiles';
@@ -15,9 +15,16 @@ const GAP = 8;
 // converted tiles are enlarged before they are shown, so the dithering stays visible
 const PREVIEW_SCALE = 4;
 
-const DISPLAY_PALETTE = DISPLAY_COLORS.map((color) => color.rgb);
+// the preview shows the colors like the display does, they are darker than the pure colors
+const DISPLAY_PALETTE = DISPLAY_COLORS.map((color) => color.panel);
+
+// the share of the second color changes in steps of 1/16, the dither pattern has 64 steps
+const SHARE_STEP = 4 / SHARE_STEPS;
 
 const hex = (rgb) => `#${rgb.map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+
+// part of the second display color, entries without one are a checkerboard
+const share = (entry) => entry.share ?? 0.5;
 
 const sameRgb = (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 
@@ -33,7 +40,7 @@ const Swatch = ({ rgb, size = 28, selected, onPress }) => (
   />
 );
 
-// One entry of the filter: map color => one display color, or two display colors in a checkerboard
+// One entry of the filter: map color => one display color, or two display colors mixed in a dither pattern
 const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }) => (
   <View style={[styles.entry, highlighted && styles.entryHighlighted]}>
     <View style={styles.row}>
@@ -62,12 +69,22 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
         </Pressable>
       )}
     </View>
+    {entry.colors.length === 2 && (
+      <View style={styles.row}>
+        <Button title="−" variant="plain" compact disabled={share(entry) <= SHARE_STEP}
+          onPress={() => onChange({ ...entry, share: share(entry) - SHARE_STEP })} />
+        <Text style={styles.hex}>{Math.round(share(entry) * 100)}%</Text>
+        <Button title="+" variant="plain" compact disabled={share(entry) >= 1 - SHARE_STEP}
+          onPress={() => onChange({ ...entry, share: share(entry) + SHARE_STEP })} />
+        <Text style={styles.text}>of the second color</Text>
+      </View>
+    )}
     {editing !== null && (
       <View style={styles.row}>
         {DISPLAY_COLORS.map((color, value) => (
           <Swatch
             key={color.name}
-            rgb={color.rgb}
+            rgb={color.panel}
             selected={entry.colors[editing] === value}
             onPress={() => {
               const colors = [...entry.colors];
@@ -79,7 +96,8 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
         {editing === 1 && entry.colors.length === 2 && (
           <Button title="No dither" variant="plain" compact onPress={() => {
             onEdit(null);
-            onChange({ ...entry, colors: [entry.colors[0]] });
+            const { share: _, ...single } = entry;
+            onChange({ ...single, colors: [entry.colors[0]] });
           }} />
         )}
       </View>
@@ -147,9 +165,9 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
     setEditing(null);
   };
 
-  // the picked color gets an entry of its own, starting with the display colors it has now
+  // the picked color gets an entry of its own, starting with the display colors and share it has now
   const addPickedColor = () => {
-    setDraft([...draft, { rgb: picked.rgb, colors: [...draft[pickedEntry].colors] }]);
+    setDraft([...draft, { ...draft[pickedEntry], rgb: picked.rgb, colors: [...draft[pickedEntry].colors] }]);
     setEditing({ index: draft.length, slot: 0 });
   };
 
@@ -255,7 +273,8 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
         <SectionTitle>Filter entries</SectionTitle>
         <Hint>
           Every pixel gets the display colors of the entry with the most similar color.
-          Two display colors are drawn as checkerboard.
+          Two display colors are mixed in a dither pattern, the percentage is the part of the second color.
+          Thin lines and text are drawn solid in the darker of the two colors.
         </Hint>
         {draft.map((_, index) => renderEntry(index))}
       </ScrollView>
