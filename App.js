@@ -3,6 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import { BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
+import BluetoothIcon from './components/BluetoothIcon';
+import BluetoothScreen from './components/BluetoothScreen';
 import Button from './components/Button';
 import Icon from './components/Icon';
 import FilterScreen from './components/FilterScreen';
@@ -81,7 +83,7 @@ export default function App() {
   // { lon, lat, zoom } of the map, the last position is remembered
   const [view, setView] = useState(() => (isView(settings.view) ? settings.view : DEFAULT_VIEW));
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
-  // 'main', 'tracks', 'filter' or 'transfer'
+  // 'main', 'tracks', 'filter', 'transfer' or 'bluetooth'
   const [screen, setScreen] = useState('main');
   const [error, setError] = useState(null);
   // { done, total, failed } while the tiles are loaded
@@ -199,7 +201,7 @@ export default function App() {
   const changeFilter = (newFilter) =>
     changeTileSettings({ filter: newFilter === DEFAULT_FILTER ? undefined : newFilter });
 
-  // the Android back button leaves the tracks and filter screen, the transfer screen handles it itself
+  // the Android back button leaves the tracks and filter screen, the transfer and Bluetooth screens handle it themselves
   useEffect(() => {
     if (screen !== 'filter' && screen !== 'tracks') {
       return;
@@ -276,6 +278,13 @@ export default function App() {
             onApply={changeFilter}
             onBack={() => setScreen('main')}
           />
+        ) : screen === 'bluetooth' ? (
+          <BluetoothScreen
+            device={settings.bleDevice}
+            onDeviceChange={(bleDevice) => changeSettings({ bleDevice })}
+            onOpenWifi={() => setScreen('transfer')}
+            onBack={() => setScreen('main')}
+          />
         ) : screen === 'transfer' ? (
           <TransferScreen
             files={prepared?.files ?? null}
@@ -300,6 +309,9 @@ export default function App() {
               </NavTile>
               <NavTile label="Device" onPress={() => setScreen('transfer')} disabled={loading}>
                 <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
+              </NavTile>
+              <NavTile label="Bluetooth" onPress={() => setScreen('bluetooth')} disabled={loading}>
+                <BluetoothIcon />
               </NavTile>
             </View>
 

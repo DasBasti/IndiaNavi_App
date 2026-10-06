@@ -277,7 +277,8 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
         {mode === 'accessPoint' ? (
           <>
             <Hint>
-              Plug in the charger of the IndiaNavi. The charging screen shows a QR code with the WiFi of the device.
+              Plug in the charger of the IndiaNavi, or switch its WiFi on in the Bluetooth screen. The display shows a QR
+              code with the WiFi of the device.
             </Hint>
             {scanning ? (
               <>

@@ -38,6 +38,9 @@ directly, so no router is involved.
 | Channel | 1, or the channel of the other WiFi if the device joined one as well |
 | Clients | at most 2 at the same time |
 
+The access point can also be switched on and off over Bluetooth (see `ble_api.md`), the password is never sent
+that way, it is only on the display.
+
 The charging screen of the device (the screen shown when the device is switched
 off and plugged in) shows a QR code with the credentials in the standard WiFi
 format, plus SSID and password as text:
