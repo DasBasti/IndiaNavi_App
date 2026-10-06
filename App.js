@@ -8,25 +8,29 @@ import Icon from './components/Icon';
 import FilterScreen from './components/FilterScreen';
 import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
-import MapPreview, { areaColor } from './components/MapPreview';
+import MapSearch from './components/MapSearch';
+import MapView, { areaColor } from './components/MapView';
 import TileServerSetting from './components/TileServerSetting';
-import { Badge, Card, Message, PaletteStrip, ProgressBar } from './components/ui';
+import { Badge, Card, Hint, Message, PaletteStrip, ProgressBar } from './components/ui';
 
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER } from './modules/map_color';
-import { deleteTiles, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
+import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
 import { loadSettings, saveSettings } from './modules/settings';
 import { BORDER, PAGE_PADDING, SHADOW, colors, font, shadow } from './theme';
 import { loadTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
-import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, trackLength, trackLines, zoomMargin } from './modules/tiles';
+import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
 import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_library';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-// Dahner Felsenland, shown in the filter screen as long as no GPX file is open
-const DEFAULT_PREVIEW_POSITION = { lon: 7.765, lat: 49.143 };
+// Dahner Felsenland, shown as long as there is no track and the map was not moved
+const DEFAULT_VIEW = { lon: 7.765, lat: 49.143, zoom: 13 };
+
+const isView = (view) =>
+  [view?.lon, view?.lat, view?.zoom].every(Number.isFinite);
 
 const isFilter = (filter) =>
   Array.isArray(filter) && filter.length > 0 &&
@@ -74,6 +78,8 @@ export default function App() {
   const filter = isFilter(settings.filter) ? settings.filter : DEFAULT_FILTER;
   // { id, name, text, lines, bounds } of the selected track
   const [track, setTrack] = useState(() => selectedTrack(settings.trackId));
+  // { lon, lat, zoom } of the map, the last position is remembered
+  const [view, setView] = useState(() => (isView(settings.view) ? settings.view : DEFAULT_VIEW));
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
   // 'main', 'tracks', 'filter' or 'transfer'
   const [screen, setScreen] = useState('main');
@@ -84,10 +90,13 @@ export default function App() {
   const [prepared, setPrepared] = useState(null);
   const abort = useRef(null);
 
-  const tiles = useMemo(
-    () => (track ? listTiles(track.bounds, margin) : []),
-    [track, margin]
+  // a track decides the area, without a track it is around the middle of the map
+  const bounds = useMemo(
+    () => track?.bounds ?? pointBounds(view.lon, view.lat),
+    [track, view.lon, view.lat]
   );
+
+  const tiles = useMemo(() => listTiles(bounds, margin), [bounds, margin]);
 
   const changeSettings = useCallback((changes) => {
     setSettings((current) => {
@@ -96,6 +105,15 @@ export default function App() {
       return newSettings;
     });
   }, []);
+
+  const changeView = useCallback((newView) => {
+    setView(newView);
+    if (!track) {
+      // the area follows the map, so the prepared files do not match it anymore
+      setPrepared(null);
+    }
+    changeSettings({ view: newView });
+  }, [changeSettings, track]);
 
   const showTrack = useCallback((newTrack) => {
     abort.current?.abort();
@@ -157,6 +175,8 @@ export default function App() {
     return () => subscription.remove();
   }, [openGpx]);
 
+  const searchResult = ({ lon, lat }) => changeView({ lon, lat, zoom: 14 });
+
   const changeMargin = (change) => {
     setMargin(Math.max(0, margin + change));
     setPrepared(null);
@@ -194,8 +214,8 @@ export default function App() {
   // the filter screen starts with the tile in the middle of the track
   const previewTile = () => {
     const zoom = Math.max(...ZOOM_LEVELS);
-    const lon = track ? (track.bounds.minLon + track.bounds.maxLon) / 2 : DEFAULT_PREVIEW_POSITION.lon;
-    const lat = track ? (track.bounds.minLat + track.bounds.maxLat) / 2 : DEFAULT_PREVIEW_POSITION.lat;
+    const lon = (bounds.minLon + bounds.maxLon) / 2;
+    const lat = (bounds.minLat + bounds.maxLat) / 2;
     return { zoom, x: lon2tile(lon, zoom), y: lat2tile(lat, zoom) };
   };
 
@@ -206,7 +226,11 @@ export default function App() {
     setPrepared(null);
     setProgress({ done: 0, total: tiles.length, failed: 0 });
     try {
-      writeFile(trackFile(), track.text);
+      if (track) {
+        writeFile(trackFile(), track.text);
+      } else {
+        deleteTrack();
+      }
       const failed = await loadTiles(tileUrlTemplate, tiles, filter, {
         signal: controller.signal,
         onProgress: setProgress,
@@ -257,7 +281,7 @@ export default function App() {
             files={prepared?.files ?? null}
             device={settings.device ?? {}}
             onDeviceChange={(device) => changeSettings({ device })}
-            onTransferred={() => changeSettings({ deviceTrackId: track.id })}
+            onTransferred={() => changeSettings({ deviceTrackId: track?.id })}
             onBack={() => setScreen('main')}
           />
         ) : (
@@ -283,79 +307,85 @@ export default function App() {
 
             {error && <Message tone="red" icon="noSD">{error}</Message>}
 
-            {track ? (
-              <>
-                <View style={styles.trackName}>
-                  <Icon name="path" size={32} />
-                  <Text style={styles.name} numberOfLines={1}>{track.name}</Text>
-                  {track.id === settings.deviceTrackId && <Badge color={colors.blue}>on the IndiaNavi</Badge>}
-                </View>
+            {track && (
+              <View style={styles.trackName}>
+                <Icon name="path" size={32} />
+                <Text style={styles.name} numberOfLines={1}>{track.name}</Text>
+                {track.id === settings.deviceTrackId && <Badge color={colors.blue}>on the IndiaNavi</Badge>}
+                <Button title="×" onPress={() => showTrack(null)} disabled={loading} variant="plain" compact />
+              </View>
+            )}
 
-                <View style={styles.map}>
-                  <MapPreview lines={track.lines} bounds={track.bounds} margin={margin} tileUrlTemplate={tileUrlTemplate} />
-                </View>
+            <View style={styles.map}>
+              <MapView
+                view={view}
+                onViewChange={changeView}
+                lines={track?.lines}
+                bounds={track?.bounds}
+                fitKey={track?.id}
+                margin={margin}
+                tileUrlTemplate={tileUrlTemplate}
+              />
+              {!track && <MapSearch onSelect={searchResult} />}
+            </View>
 
-                <View style={styles.legends}>
-                  {ZOOM_LEVELS.map((zoom, index) => (
-                    <View key={zoom} style={styles.legend}>
-                      <View style={[styles.legendFrame, { borderColor: areaColor(index) }]} />
-                      <Text style={styles.small}>
-                        Zoom {zoom}: {countTiles(track.bounds, margin, zoom)} tiles, margin {zoomMargin(margin, zoom)}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+            {!track && (
+              <Hint>Move the map to put the cross where you need tiles, or open a GPX track.</Hint>
+            )}
 
-                <Card style={styles.summary}>
-                  <Icon name="SD" size={32} />
-                  <Text style={styles.summaryText}>
-                    {tiles.length} tiles from {tileServerName(tileUrlTemplate)}
-                    {'\n'}{megabytes(tiles.length * RAW_TILE_BYTES)} on the SD card
+            <View style={styles.legends}>
+              {ZOOM_LEVELS.map((zoom, index) => (
+                <View key={zoom} style={styles.legend}>
+                  <View style={[styles.legendFrame, { borderColor: areaColor(index) }]} />
+                  <Text style={styles.small}>
+                    Zoom {zoom}: {countTiles(bounds, margin, zoom)} tiles, margin {zoomMargin(margin, zoom)}
                   </Text>
-                </Card>
-
-                <View style={styles.row}>
-                  <Text style={styles.marginText}>Margin: {margin} tiles</Text>
-                  <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
-                  <Button title="+" onPress={() => changeMargin(1)} disabled={loading} variant="plain" compact />
                 </View>
+              ))}
+            </View>
 
-                {loading ? (
-                  <>
-                    <ProgressBar done={progress.done} total={progress.total} />
-                    <View style={styles.row}>
-                      <Text style={styles.small}>
-                        {progress.done}/{progress.total} tiles
-                        {progress.failed > 0 && `, ${progress.failed} failed`}
-                      </Text>
-                      <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" compact />
-                    </View>
-                  </>
-                ) : (
-                  <Button
-                    title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
-                    icon="SD"
-                    onPress={prepare}
-                  />
-                )}
+            <Card style={styles.summary}>
+              <Icon name="SD" size={32} />
+              <Text style={styles.summaryText}>
+                {tiles.length} tiles from {tileServerName(tileUrlTemplate)}
+                {'\n'}{megabytes(tiles.length * RAW_TILE_BYTES)} on the SD card
+              </Text>
+            </Card>
 
-                {prepared && (
-                  <Message tone={prepared.failed ? 'red' : 'green'} icon={prepared.failed ? 'noSD' : 'SD'}>
-                    {prepared.failed
-                      ? `${prepared.failed} tiles could not be loaded (${prepared.reason}).`
-                      : `${prepared.files.length} files (${megabytes(prepared.bytes)}) are ready for the transfer to the IndiaNavi.`}
-                  </Message>
-                )}
-                {prepared && !loading && (
-                  <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => setScreen('transfer')} />
-                )}
+            <View style={styles.row}>
+              <Text style={styles.marginText}>Margin: {margin} tiles</Text>
+              <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
+              <Button title="+" onPress={() => changeMargin(1)} disabled={loading} variant="plain" compact />
+            </View>
+
+            {loading ? (
+              <>
+                <ProgressBar done={progress.done} total={progress.total} />
+                <View style={styles.row}>
+                  <Text style={styles.small}>
+                    {progress.done}/{progress.total} tiles
+                    {progress.failed > 0 && `, ${progress.failed} failed`}
+                  </Text>
+                  <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" compact />
+                </View>
               </>
             ) : (
-              <View style={styles.empty}>
-                <Icon name="path" size={96} />
-                <Text style={styles.centered}>Open a GPX file or choose one of your tracks to see the area of the map.</Text>
-                <Button title="Open GPX" icon="GPS" onPress={() => openGpx(pickGpxFile)} />
-              </View>
+              <Button
+                title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
+                icon="SD"
+                onPress={prepare}
+              />
+            )}
+
+            {prepared && (
+              <Message tone={prepared.failed ? 'red' : 'green'} icon={prepared.failed ? 'noSD' : 'SD'}>
+                {prepared.failed
+                  ? `${prepared.failed} tiles could not be loaded (${prepared.reason}).`
+                  : `${prepared.files.length} files (${megabytes(prepared.bytes)}) are ready for the transfer to the IndiaNavi.`}
+              </Message>
+            )}
+            {prepared && !loading && (
+              <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => setScreen('transfer')} />
             )}
           </>
         )}
@@ -438,23 +468,14 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+    overflow: 'hidden',
     borderWidth: BORDER,
     borderColor: colors.ink,
     backgroundColor: colors.paper,
   },
-  centered: {
-    textAlign: 'center',
-    color: colors.ink,
-  },
   small: {
     fontSize: 13,
     color: colors.ink,
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
   },
   row: {
     flexDirection: 'row',

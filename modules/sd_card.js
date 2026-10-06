@@ -21,6 +21,14 @@ export const writeFile = (file, content) => {
     file.write(content);
 }
 
+// Without a track the SD card files only have tiles, an old track must not be sent along
+export const deleteTrack = () => {
+    const file = trackFile();
+    if (file.exists) {
+        file.delete();
+    }
+}
+
 // Deletes all tiles, for example when they have to be loaded from another server
 export const deleteTiles = () => {
     const maps = new Directory(sdCardRoot(), "MAPS");
