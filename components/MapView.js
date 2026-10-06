@@ -175,8 +175,9 @@ export default function MapView({ view, onViewChange, lines, bounds, fitKey, mar
   return (
     <View
       style={styles.container}
-      onLayout={({ nativeEvent: { layout } }) => setSize({ width: layout.width, height: layout.height })}
-      {...panResponder.panHandlers}>
+      onLayout={({ nativeEvent: { layout } }) => setSize({ width: layout.width, height: layout.height })}>
+      {/* the gestures are caught by this layer only, so they can not take the touches of the zoom buttons */}
+      <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers} />
       {content && (
         <View style={[styles.content, { transform: [{ translateX: offset.x }, { translateY: offset.y }] }]} pointerEvents="none">
           {content.tiles.map(({ key, uri, ...position }) => (
