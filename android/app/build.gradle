@@ -81,6 +81,14 @@ def enableMinifyInReleaseBuilds = (findProperty('android.enableMinifyInReleaseBu
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+/**
+ * The upload key for the Play Store, set these in ~/.gradle/gradle.properties
+ * or as ORG_GRADLE_PROJECT_<name> environment variables. Without them the
+ * release build is signed with the debug key and the bundle cannot be built.
+ */
+def uploadStoreFile = findProperty('WANDERNAVI_UPLOAD_STORE_FILE')
+def hasUploadKey = uploadStoreFile != null
+
 android {
     ndkVersion rootProject.ext.ndkVersion
 
@@ -104,15 +112,21 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasUploadKey) {
+            release {
+                storeFile file(uploadStoreFile)
+                storePassword findProperty('WANDERNAVI_UPLOAD_STORE_PASSWORD')
+                keyAlias findProperty('WANDERNAVI_UPLOAD_KEY_ALIAS')
+                keyPassword findProperty('WANDERNAVI_UPLOAD_KEY_PASSWORD')
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig hasUploadKey ? signingConfigs.release : signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
@@ -129,6 +143,13 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// The Play Store rejects bundles signed with the debug key
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(':app:bundleRelease') && !hasUploadKey) {
+        throw new GradleException('No upload key, set WANDERNAVI_UPLOAD_STORE_FILE and friends in ~/.gradle/gradle.properties')
     }
 }
 
