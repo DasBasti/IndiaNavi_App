@@ -1,6 +1,8 @@
 import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 
+import { checkFirmwareImage } from "./firmware_release";
+
 // Address of the IndiaNavi in its own access point
 export const ACCESS_POINT_ADDRESS = "192.168.4.1";
 
@@ -17,8 +19,6 @@ const INFO_TIMEOUT = 5000;
 const REQUEST_TIMEOUT = 30000;
 // Writing a firmware image of 1 to 2 MB to the flash of the device
 const FIRMWARE_TIMEOUT = 180000;
-// First byte of every ESP32 application image
-const FIRMWARE_MAGIC = 0xe9;
 
 // The card needs some space for the temporary file of an upload
 const SPACE_RESERVE = 1024 * 1024;
@@ -223,11 +223,7 @@ export const transferToDevice = async (base, files, { signal, onProgress } = {})
 
 // Reads a firmware image (.bin of the IndiaNavi firmware) from a picked file
 export const readFirmware = async (file) => {
-    const bytes = await (file instanceof File ? file : new File(file)).bytes();
-    if (bytes.length < 1024 || bytes[0] !== FIRMWARE_MAGIC) {
-        throw new Error("This is not a firmware file of the IndiaNavi");
-    }
-    return bytes;
+    return checkFirmwareImage(await (file instanceof File ? file : new File(file)).bytes());
 }
 
 // Installs the firmware image (bytes) on the device and restarts it. The device checks the image

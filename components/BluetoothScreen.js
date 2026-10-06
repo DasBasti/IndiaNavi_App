@@ -8,6 +8,7 @@ import Button from './Button';
 import { Card, Hint, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
+import { downloadRelease, fetchLatestRelease, isNewer } from '../modules/firmware_release';
 import { DISPLAY_COLORS } from '../modules/map_color';
 import { IndiaNaviConnection, isBleSupported, scanForDevices } from '../modules/ble/ble_client';
 import { getPhonePosition } from '../modules/ble/phone_position';
@@ -27,7 +28,10 @@ const positionText = (position) =>
       `(${FIX_NAMES[position.fix] ?? 'fix'}, ${position.satellitesInUse} satellites, HDOP ${position.hdop})`
     : 'The IndiaNavi has no position yet.';
 
-const updatePhaseText = ({ phase, done, total }) => {
+const updatePhaseText = ({ phase, done, total, tag }) => {
+  if (phase === 'downloading') {
+    return `Downloading ${tag} from GitHub…`;
+  }
   if (phase === 'verifying') {
     return 'The IndiaNavi checks the firmware…';
   }
@@ -54,6 +58,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   const [devicePosition, setDevicePosition] = useState(undefined);
   // { phase, done, total } while the firmware is sent
   const [update, setUpdate] = useState(null);
+  // the newest firmware on GitHub, null while unknown
+  const [release, setRelease] = useState(null);
   const [busy, setBusy] = useState(false);
   const scanAbort = useRef(null);
   const updateAbort = useRef(null);
@@ -125,6 +131,10 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
         connected.onPosition(setDevicePosition),
       ];
       setConnection(connected);
+      if (connected.info.ota) {
+        // without internet there is simply no offer
+        fetchLatestRelease().then(setRelease, () => setRelease(null));
+      }
       if (synced) {
         setNotice('The time of the IndiaNavi is set from the phone.');
       }
@@ -229,29 +239,54 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     );
   };
 
-  const updateFirmware = async () => {
+  // Sends the image that getImage returns, it gets the signal to cancel
+  const sendFirmware = async (getImage) => {
     setError(null);
     setNotice(null);
+    const controller = new AbortController();
+    updateAbort.current = controller;
     try {
-      const picked = await File.pickFileAsync();
-      if (picked.canceled) {
+      const image = await getImage(controller.signal);
+      if (!image) {
         return;
       }
-      const image = await readFirmware(picked.result);
-      const controller = new AbortController();
-      updateAbort.current = controller;
       setUpdate({ phase: 'sending', done: 0, total: image.length });
       await connection.updateFirmware(image, { signal: controller.signal, onProgress: setUpdate });
       setNotice('The firmware was sent. The IndiaNavi restarts with the new firmware, connect again in a minute.');
     } catch (e) {
-      setError(updateAbort.current?.signal.aborted ? 'The update was cancelled.' : `Firmware update failed: ${e.message}`);
+      setError(controller.signal.aborted ? 'The update was cancelled.' : `Firmware update failed: ${e.message}`);
     } finally {
       updateAbort.current = null;
       setUpdate(null);
     }
   };
 
+  const updateFromFile = () => sendFirmware(async () => {
+    const picked = await File.pickFileAsync();
+    return picked.canceled ? null : readFirmware(picked.result);
+  });
+
+  const installRelease = () => {
+    const { notes } = release;
+    Alert.alert(
+      `Install ${release.tag}?`,
+      `${release.name}, ${megabytes(release.size)}${notes ? `\n\n${notes.length > 400 ? `${notes.slice(0, 400)}…` : notes}` : ''}\n\n` +
+        'The update takes a few minutes, stay close to the IndiaNavi and keep the app open.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Install',
+          onPress: () => sendFirmware((signal) => {
+            setUpdate({ phase: 'downloading', done: 0, total: release.size, tag: release.tag });
+            return downloadRelease(release, { signal });
+          }),
+        },
+      ]
+    );
+  };
+
   const supported = isBleSupported();
+  const newer = release && connection ? isNewer(release, connection.info.firmware) : null;
 
   return (
     <View style={styles.screen}>
@@ -426,10 +461,28 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
               </>
             ) : (
               <>
-                <Button title="Update firmware" onPress={updateFirmware} disabled={working || !connection.info.ota} variant="secondary" />
+                {release && connection.info.ota && (
+                  newer === false ? (
+                    <Text style={styles.small}>The firmware is up to date, {release.tag} is the newest release.</Text>
+                  ) : (
+                    <>
+                      {newer && (
+                        <Message tone="yellow">Firmware {release.tag} is available on GitHub.</Message>
+                      )}
+                      <Button
+                        title={`Install ${release.tag}`}
+                        onPress={installRelease}
+                        disabled={working}
+                        variant={newer ? 'primary' : 'secondary'}
+                      />
+                    </>
+                  )
+                )}
+                <Button title="Update from a file" onPress={updateFromFile} disabled={working || !connection.info.ota} variant="plain" />
                 <Hint>
-                  Pick the firmware file (firmware.bin). The update takes a few minutes, stay close to the IndiaNavi and keep
-                  the app open. The old firmware stays if anything goes wrong. The display shows the progress.
+                  The newest firmware comes from the releases on GitHub, or pick a firmware file (firmware.bin). The update
+                  takes a few minutes, stay close to the IndiaNavi and keep the app open. The old firmware stays if anything
+                  goes wrong. The display shows the progress.
                 </Hint>
               </>
             )}
