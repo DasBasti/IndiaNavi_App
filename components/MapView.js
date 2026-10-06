@@ -28,8 +28,8 @@ const areasOf = (bounds, margin) => ZOOM_LEVELS.map((zoom) => tileArea(bounds, m
 // Map to move around with one finger and to zoom with two fingers or the buttons.
 // view is { lon, lat, zoom } of the center, onViewChange gets the new view after every gesture.
 // With lines (and the bounds of them) the frames show the area of the track, fitKey fits the view to them once.
-// Without lines the area is around the cross in the middle of the map.
-export default function MapView({ view, onViewChange, lines, bounds, fitKey, margin, tileUrlTemplate }) {
+// Without lines the area is around the cross in the middle of the map. trackColor is the color of the lines.
+export default function MapView({ view, onViewChange, lines, bounds, fitKey, margin, tileUrlTemplate, trackColor = colors.red }) {
   const [size, setSize] = useState(null);
   // pixels the map is dragged by the finger, committed to the view when it is released
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -197,7 +197,7 @@ export default function MapView({ view, onViewChange, lines, bounds, fitKey, mar
                   key={index}
                   points={points}
                   fill="none"
-                  stroke={colors.red}
+                  stroke={trackColor}
                   strokeWidth={4}
                   strokeLinejoin="round"
                   strokeLinecap="round"

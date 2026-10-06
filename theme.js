@@ -11,7 +11,7 @@ export const colors = {
   paper: white, // background
   green, // primary action, selection, success
   blue, // the IndiaNavi, links
-  red, // errors, delete, the track on the map
+  red, // errors, delete
   yellow, // highlights, hints
   orange, // secondary action, attention
 };
@@ -26,6 +26,9 @@ export const onColor = {
   [yellow]: black,
   [orange]: black,
 };
+
+// A color of the display by its number (0 black … 6 orange), as the firmware uses it
+export const displayColor = (index) => hex(DISPLAY_COLORS[index]);
 
 export const BORDER = 2;
 export const SHADOW = 3;

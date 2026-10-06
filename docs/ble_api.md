@@ -12,7 +12,8 @@ The phone can use Bluetooth to
 - set the time and tell the position, so the GPS module finds the satellites faster,
 - read the position of the device,
 - switch the WiFi access point on and off,
-- show or hide the track and the height graph and set how often the screen is updated,
+- show or hide the track and the height graph, choose the color of the track and set how often the screen is
+  updated,
 - update the firmware.
 
 Files (tiles and track) are still sent over WiFi, see `wifi_upload_api.md`.
@@ -63,7 +64,7 @@ is not allowed (outside of a range, reserved bits set, unknown command) with *Va
 | Byte | Content |
 |---|---|
 | 0 | API version, 1 |
-| 1 | flags: bit 0 = firmware update supported, bit 1 = charger connected |
+| 1 | flags: bit 0 = firmware update supported, bit 1 = charger connected, bit 2 = track color in the settings |
 | 2 | battery in percent |
 | 3 | 0 |
 | 4… | firmware version (text, not terminated) |
@@ -126,7 +127,7 @@ changes (and is notified) when the access point started or stopped and when a ph
 | Byte | Content |
 |---|---|
 | 0 | flags: bit 0 = show the track, bit 1 = show the height graph. Other bits have to be 0 |
-| 1 | 0 |
+| 1 | color of the track + 1, 0 = default (blue) |
 | 2–3 | update interval of the screen in seconds, u16, **30 to 600** |
 
 The interval is the time between two automatic updates of the screen (the e-ink display needs about 20 seconds
@@ -134,6 +135,11 @@ for one update). Updates that something triggers, such as a button, the WiFi QR 
 progress of a transfer, are not delayed by it. The default is 60 seconds, track and height graph are shown by
 default. The settings are stored in NVS and survive a restart. With the height graph hidden, the scale and the
 copyright line move down.
+
+The track color is a color of the display: 0 black, 1 white, 2 green, 3 blue, 4 red, 5 yellow, 6 orange. The
+value is that number + 1, so a 0 written by an app that does not know the color keeps the default, blue. Values
+above 7 are refused. The phone only writes a color if the Info flag bit 2 is set, an older firmware refuses
+anything but 0 in this byte. Reading returns the color + 1.
 
 ### Device control (0b)
 

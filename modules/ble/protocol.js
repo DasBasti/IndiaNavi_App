@@ -76,7 +76,7 @@ const check = (bytes, length, what) => {
 
 export const INFO_HEADER_SIZE = 4;
 
-// { api, ota, charging, battery (percent), firmware }
+// { api, ota, charging, trackColor (the settings carry the track color), battery (percent), firmware }
 export const decodeInfo = (bytes) => {
   if (bytes.length < INFO_HEADER_SIZE) {
     throw new Error('Device info is too short');
@@ -85,6 +85,7 @@ export const decodeInfo = (bytes) => {
     api: bytes[0],
     ota: (bytes[1] & 0x01) !== 0,
     charging: (bytes[1] & 0x02) !== 0,
+    trackColor: (bytes[1] & 0x04) !== 0,
     battery: bytes[2],
     firmware: new TextDecoder().decode(bytes.subarray(INFO_HEADER_SIZE)),
   };
@@ -202,24 +203,34 @@ export const UPDATE_INTERVAL_CHOICES = [30, 60, 120, 300, 600];
 
 export const clampUpdateInterval = (seconds) => clamp(Math.round(seconds), UPDATE_INTERVAL_MIN, UPDATE_INTERVAL_MAX);
 
+// The track color is a color of the display, the number in DISPLAY_COLORS of map_color.js (0 black … 6 orange)
+export const TRACK_COLOR_MAX = 6;
+export const TRACK_COLOR_DEFAULT = 3; // blue
+
 export const formatInterval = (seconds) => (seconds < 60 ? `${seconds} s` : `${seconds / 60} min`);
 
-export const encodeSettings = ({ showTrack, showHeightGraph, updateInterval }) => {
+// Without trackColor the byte is 0 and the device keeps blue, a firmware without the color accepts only that
+export const encodeSettings = ({ showTrack, showHeightGraph, trackColor, updateInterval }) => {
   if (!Number.isInteger(updateInterval) || updateInterval < UPDATE_INTERVAL_MIN || updateInterval > UPDATE_INTERVAL_MAX) {
     throw new Error(`The update interval has to be ${UPDATE_INTERVAL_MIN} to ${UPDATE_INTERVAL_MAX} seconds`);
   }
+  if (trackColor !== undefined && (!Number.isInteger(trackColor) || trackColor < 0 || trackColor > TRACK_COLOR_MAX)) {
+    throw new Error(`The track color has to be 0 to ${TRACK_COLOR_MAX}`);
+  }
   const bytes = new Uint8Array(SETTINGS_SIZE);
   bytes[0] = (showTrack ? SETTING_SHOW_TRACK : 0) | (showHeightGraph ? SETTING_SHOW_HEIGHT_GRAPH : 0);
+  bytes[1] = trackColor === undefined ? 0 : trackColor + 1;
   view(bytes).setUint16(2, updateInterval, true);
   return bytes;
 };
 
-// { showTrack, showHeightGraph, updateInterval }
+// { showTrack, showHeightGraph, trackColor, updateInterval }
 export const decodeSettings = (bytes) => {
   check(bytes, SETTINGS_SIZE, 'Settings');
   return {
     showTrack: (bytes[0] & SETTING_SHOW_TRACK) !== 0,
     showHeightGraph: (bytes[0] & SETTING_SHOW_HEIGHT_GRAPH) !== 0,
+    trackColor: bytes[1] === 0 ? TRACK_COLOR_DEFAULT : bytes[1] - 1,
     updateInterval: view(bytes).getUint16(2, true),
   };
 };

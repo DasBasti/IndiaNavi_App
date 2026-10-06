@@ -7,6 +7,7 @@ import {
   OTA_ERROR,
   OTA_STATE,
   TIME_MIN,
+  TRACK_COLOR_DEFAULT,
   clampUpdateInterval,
   decodeInfo,
   decodeOtaStatus,
@@ -54,7 +55,8 @@ test('base64 round trip with all byte values', () => {
 
 test('info has version, flags, battery and firmware', () => {
   const info = decodeInfo(Uint8Array.from([1, 3, 80, 0, ...new TextEncoder().encode('abc1234')]));
-  assert.deepEqual(info, { api: 1, ota: true, charging: true, battery: 80, firmware: 'abc1234' });
+  assert.deepEqual(info, { api: 1, ota: true, charging: true, trackColor: false, battery: 80, firmware: 'abc1234' });
+  assert.equal(decodeInfo(bytes(1, 4, 5, 0)).trackColor, true);
   assert.equal(decodeInfo(bytes(1, 0, 5, 0)).ota, false);
   assert.throws(() => decodeInfo(bytes(1, 0)), /too short/);
 });
@@ -139,11 +141,20 @@ test('WiFi control is one byte, status has no password', () => {
 });
 
 test('settings round trip', () => {
-  const settings = { showTrack: true, showHeightGraph: false, updateInterval: 300 };
+  const settings = { showTrack: true, showHeightGraph: false, trackColor: 4, updateInterval: 300 };
   const encoded = encodeSettings(settings);
-  assert.deepEqual([...encoded], [1, 0, 300 & 0xff, 300 >> 8]);
+  assert.deepEqual([...encoded], [1, 5, 300 & 0xff, 300 >> 8]);
   assert.deepEqual(decodeSettings(encoded), settings);
   assert.deepEqual([...encodeSettings({ showTrack: true, showHeightGraph: true, updateInterval: 30 })], [3, 0, 30, 0]);
+});
+
+test('track color is a display color, 0 on the wire is the default', () => {
+  const base = { showTrack: true, showHeightGraph: true, updateInterval: 60 };
+  assert.equal(decodeSettings(bytes(1, 0, 60, 0)).trackColor, TRACK_COLOR_DEFAULT);
+  assert.equal(encodeSettings({ ...base, trackColor: 0 })[1], 1);
+  assert.equal(encodeSettings({ ...base, trackColor: 6 })[1], 7);
+  assert.throws(() => encodeSettings({ ...base, trackColor: 7 }), /track color/);
+  assert.throws(() => encodeSettings({ ...base, trackColor: -1 }), /track color/);
 });
 
 test('update interval is 30 s to 10 min', () => {

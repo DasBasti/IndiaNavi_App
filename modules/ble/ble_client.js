@@ -222,9 +222,11 @@ export class IndiaNaviConnection {
     return decodeSettings(await this.read(CHARACTERISTICS.settings));
   }
 
-  // settings: { showTrack, showHeightGraph, updateInterval }
+  // settings: { showTrack, showHeightGraph, trackColor, updateInterval }
   writeSettings(settings) {
-    return this.write(CHARACTERISTICS.settings, encodeSettings(settings));
+    // an older firmware refuses a track color
+    const { trackColor, ...rest } = settings;
+    return this.write(CHARACTERISTICS.settings, encodeSettings(this.info.trackColor ? settings : rest));
   }
 
   // The device forgets this phone and lets the next phone pair. The connection ends.

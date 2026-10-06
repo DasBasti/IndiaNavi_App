@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, BackHandler, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { File } from 'expo-file-system';
 import { useKeepAwake } from 'expo-keep-awake';
 
 import BluetoothIcon from './BluetoothIcon';
 import Button from './Button';
 import { Card, Hint, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
-import { BORDER, colors, font } from '../theme';
+import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
+import { DISPLAY_COLORS } from '../modules/map_color';
 import { IndiaNaviConnection, isBleSupported, scanForDevices } from '../modules/ble/ble_client';
 import { getPhonePosition } from '../modules/ble/phone_position';
 import { FIX_NAMES, UPDATE_INTERVAL_CHOICES, formatInterval } from '../modules/ble/protocol';
@@ -37,8 +38,9 @@ const updatePhaseText = ({ phase, done, total }) => {
 };
 
 // Talks to the IndiaNavi over Bluetooth: time and position for the GPS module, WiFi access point, what the display
-// shows and the firmware. device is the remembered { id, name } of the IndiaNavi.
-export default function BluetoothScreen({ device, onDeviceChange, onOpenWifi, onBack }) {
+// shows and the firmware. device is the remembered { id, name } of the IndiaNavi. onTrackColorChange gets the color
+// of the track on the device, so the map of the app can show it the same way.
+export default function BluetoothScreen({ device, onDeviceChange, onTrackColorChange, onOpenWifi, onBack }) {
   const [connection, setConnection] = useState(null);
   const [connecting, setConnecting] = useState(false);
   // devices found by the scan
@@ -113,7 +115,11 @@ export default function BluetoothScreen({ device, onDeviceChange, onOpenWifi, on
         // the user can send it again
       }
       setWifi(await connected.readWifiStatus());
-      setSettings(await connected.readSettings());
+      const deviceSettings = await connected.readSettings();
+      setSettings(deviceSettings);
+      if (connected.info.trackColor) {
+        onTrackColorChange(deviceSettings.trackColor);
+      }
       subscriptions.current = [
         connected.onWifiStatus(setWifi),
         connected.onPosition(setDevicePosition),
@@ -129,7 +135,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onOpenWifi, on
     } finally {
       setConnecting(false);
     }
-  }, [disconnected, onDeviceChange]);
+  }, [disconnected, onDeviceChange, onTrackColorChange]);
 
   const scan = async () => {
     setError(null);
@@ -199,6 +205,9 @@ export default function BluetoothScreen({ device, onDeviceChange, onOpenWifi, on
     const next = { ...settings, ...changes };
     await connection.writeSettings(next);
     setSettings(next);
+    if (connection.info.trackColor) {
+      onTrackColorChange(next.trackColor);
+    }
   }, 'Could not change the settings');
 
   const forget = () => {
@@ -366,6 +375,28 @@ export default function BluetoothScreen({ device, onDeviceChange, onOpenWifi, on
                     thumbColor={colors.ink}
                   />
                 </View>
+                {connection.info.trackColor && (
+                  <>
+                    <Text style={styles.text}>Color of the track</Text>
+                    <View style={styles.row}>
+                      {DISPLAY_COLORS.map((color, value) => {
+                        const selected = settings.trackColor === value;
+                        return (
+                          <Pressable
+                            key={color.name}
+                            onPress={() => changeSettings({ trackColor: value })}
+                            disabled={working || selected}
+                            accessibilityLabel={color.name}
+                            accessibilityState={{ selected }}
+                            style={[styles.swatch, { backgroundColor: displayColor(value) }, selected && styles.swatchSelected]}
+                          >
+                            {selected && <Text style={[styles.check, { color: onColor[displayColor(value)] }]}>✓</Text>}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </>
+                )}
                 <Text style={styles.text}>Screen update every</Text>
                 <View style={styles.row}>
                   {UPDATE_INTERVAL_CHOICES.map((seconds) => (
@@ -431,6 +462,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  swatch: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+  },
+  swatchSelected: {
+    borderWidth: 4,
+  },
+  check: {
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   found: {
     flexDirection: 'row',

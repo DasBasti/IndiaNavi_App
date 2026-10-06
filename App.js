@@ -19,8 +19,9 @@ import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER } from './modules/map_color';
 import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
+import { TRACK_COLOR_DEFAULT, TRACK_COLOR_MAX } from './modules/ble/protocol';
 import { loadSettings, saveSettings } from './modules/settings';
-import { BORDER, PAGE_PADDING, SHADOW, colors, font, shadow } from './theme';
+import { BORDER, PAGE_PADDING, SHADOW, colors, displayColor, font, shadow } from './theme';
 import { loadTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
 import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
@@ -78,6 +79,12 @@ export default function App() {
   const [settings, setSettings] = useState(loadSettings);
   const tileUrlTemplate = settings.tileUrl ?? DEFAULT_TILE_URL;
   const filter = isFilter(settings.filter) ? settings.filter : DEFAULT_FILTER;
+  // the track looks like on the IndiaNavi, the color comes from it over Bluetooth
+  const trackColor = displayColor(
+    Number.isInteger(settings.trackColor) && settings.trackColor >= 0 && settings.trackColor <= TRACK_COLOR_MAX
+      ? settings.trackColor
+      : TRACK_COLOR_DEFAULT
+  );
   // { id, name, text, lines, bounds } of the selected track
   const [track, setTrack] = useState(() => selectedTrack(settings.trackId));
   // { lon, lat, zoom } of the map, the last position is remembered
@@ -282,6 +289,7 @@ export default function App() {
           <BluetoothScreen
             device={settings.bleDevice}
             onDeviceChange={(bleDevice) => changeSettings({ bleDevice })}
+            onTrackColorChange={(newTrackColor) => changeSettings({ trackColor: newTrackColor })}
             onOpenWifi={() => setScreen('transfer')}
             onBack={() => setScreen('main')}
           />
@@ -337,6 +345,7 @@ export default function App() {
                 fitKey={track?.id}
                 margin={margin}
                 tileUrlTemplate={tileUrlTemplate}
+                trackColor={trackColor}
               />
               {!track && <MapSearch onSelect={searchResult} />}
             </View>
