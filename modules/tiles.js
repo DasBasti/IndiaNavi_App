@@ -18,6 +18,14 @@ export const lon2world = (lon) => (lon + 180) / 360;
 export const lat2world = (lat) =>
     (1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2;
 
+export const world2lon = (world) => world * 360 - 180;
+
+export const world2lat = (world) =>
+    Math.atan(Math.sinh(Math.PI * (1 - 2 * world))) * 180 / Math.PI;
+
+// The area of a single position, the tiles around it are loaded with the margin
+export const pointBounds = (lon, lat) => ({ minLon: lon, maxLon: lon, minLat: lat, maxLat: lat });
+
 export const lon2tile = (lon, zoom) => Math.floor(lon2world(lon) * 2 ** zoom);
 
 export const lat2tile = (lat, zoom) => Math.floor(lat2world(lat) * 2 ** zoom);
