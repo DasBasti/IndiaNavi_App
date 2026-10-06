@@ -95,9 +95,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'tech.platinenmacher.indianavi_app'
+    namespace 'app.wandernavi'
     defaultConfig {
-        applicationId 'tech.platinenmacher.indianavi_app'
+        applicationId 'app.wandernavi'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

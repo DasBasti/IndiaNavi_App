@@ -1,4 +1,4 @@
-package tech.platinenmacher.indianavi_app
+package app.wandernavi
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
