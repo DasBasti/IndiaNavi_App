@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import Button from './Button';
 import Icon from './Icon';
@@ -69,6 +70,47 @@ export const ProgressBar = ({ done, total, color = colors.green }) => {
   );
 };
 
+// Shown after this time, so a quick answer does not flash the window
+const BUSY_DELAY = 250;
+const BUSY_STEP = 120;
+
+// Window over the screen while the app waits for something, the segments run until it is done. It catches the
+// touches and the back button, the screen below stays as it is.
+export const BusyWindow = ({ text }) => {
+  const [shown, setShown] = useState(false);
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    setShown(false);
+    if (!text) {
+      return undefined;
+    }
+    const timer = setTimeout(() => setShown(true), BUSY_DELAY);
+    return () => clearTimeout(timer);
+  }, [text]);
+
+  useEffect(() => {
+    if (!shown) {
+      return undefined;
+    }
+    const timer = setInterval(() => setStep((current) => (current + 1) % (PROGRESS_SEGMENTS + 1)), BUSY_STEP);
+    return () => clearInterval(timer);
+  }, [shown]);
+
+  return (
+    <Modal visible={!!text} transparent animationType="none" statusBarTranslucent onRequestClose={() => { }}>
+      {shown && (
+        <View style={styles.busyBackdrop}>
+          <View style={[styles.card, styles.busyCard, shadow]}>
+            <Text style={styles.busyText}>{text}</Text>
+            <ProgressBar done={step} total={PROGRESS_SEGMENTS} />
+          </View>
+        </View>
+      )}
+    </Modal>
+  );
+};
+
 export const Input = (props) => (
   <TextInput
     placeholderTextColor={colors.ink + '99'}
@@ -135,6 +177,23 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: BORDER,
     borderColor: colors.ink,
+  },
+  busyBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 32,
+    backgroundColor: colors.ink + '66',
+  },
+  busyCard: {
+    gap: 12,
+    padding: 16,
+    backgroundColor: colors.paper,
+  },
+  busyText: {
+    fontFamily: font.mono,
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: colors.ink,
   },
   message: {
     flexDirection: 'row',

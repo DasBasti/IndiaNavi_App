@@ -5,7 +5,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 
 import BluetoothIcon from './BluetoothIcon';
 import Button from './Button';
-import { Card, Hint, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
+import { BusyWindow, Card, Hint, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
 import { downloadRelease, fetchLatestRelease, isNewer } from '../modules/firmware_release';
@@ -60,13 +60,17 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   const [update, setUpdate] = useState(null);
   // the newest firmware on GitHub, null while unknown
   const [release, setRelease] = useState(null);
-  const [busy, setBusy] = useState(false);
+  // text of the progress window while an action on the device runs
+  const [busy, setBusy] = useState(null);
+  const busyRef = useRef(false);
   const scanAbort = useRef(null);
   const updateAbort = useRef(null);
   const connectionRef = useRef(null);
   const subscriptions = useRef([]);
 
-  const working = connecting || busy || scanning || update !== null;
+  // the progress window covers the screen while busy, the controls do not need to show it
+  const locked = connecting || scanning || update !== null;
+  const working = locked || busy !== null;
 
   const dropSubscriptions = () => {
     subscriptions.current.forEach((subscription) => subscription.remove?.());
@@ -81,7 +85,6 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     setSettings(null);
     setDevicePosition(undefined);
     setUpdate(null);
-    setBusy(false);
   }, []);
 
   // leaving the screen ends the connection, the IndiaNavi advertises again for the next time
@@ -176,40 +179,47 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // runs an action on the device and shows what went wrong
-  const run = async (action, what) => {
-    setError(null);
-    setNotice(null);
-    setBusy(true);
+  // Runs an action on the device behind the progress window. The action returns the message for the user, the old
+  // one stays until then so the screen does not jump.
+  const run = async (action, what, text) => {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(text);
     try {
-      await action();
+      const message = await action();
+      setError(null);
+      setNotice(message ?? null);
     } catch (e) {
+      setNotice(null);
       setError(`${what}: ${e.message}`);
     } finally {
-      setBusy(false);
+      busyRef.current = false;
+      setBusy(null);
     }
   };
 
   const syncTime = () => run(async () => {
     await connection.syncTime();
-    setNotice('The time of the IndiaNavi is set from the phone.');
-  }, 'Could not set the time');
+    return 'The time of the IndiaNavi is set from the phone.';
+  }, 'Could not set the time', 'Setting the time…');
 
   const sendPosition = () => run(async () => {
     const position = await getPhonePosition();
     await connection.sendPosition(position);
-    setNotice(`Position sent (${Math.ceil(position.accuracy ?? 0)} m accurate). Without a GPS fix the IndiaNavi shows it on the map.`);
-  }, 'Could not send the position');
+    return `Position sent (${Math.ceil(position.accuracy ?? 0)} m accurate). Without a GPS fix the IndiaNavi shows it on the map.`;
+  }, 'Could not send the position', 'Sending the position of the phone…');
 
   const readPosition = () => run(async () => {
     setDevicePosition(await connection.readPosition());
-  }, 'Could not read the position');
+  }, 'Could not read the position', 'Reading the position…');
 
   const toggleWifi = () => run(async () => {
     await connection.setWifi(!wifi.running);
     // the device reports the new state, it takes a moment
-    setNotice(wifi.running ? 'The WiFi access point is switching off.' : 'The WiFi access point is starting. The display shows a QR code.');
-  }, 'Could not switch the WiFi');
+    return wifi.running ? 'The WiFi access point is switching off.' : 'The WiFi access point is starting. The display shows a QR code.';
+  }, 'Could not switch the WiFi', wifi?.running ? 'Switching the WiFi off…' : 'Switching the WiFi on…');
 
   const changeSettings = (changes) => run(async () => {
     const next = { ...settings, ...changes };
@@ -218,7 +228,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     if (connection.info.trackColor) {
       onTrackColorChange(next.trackColor);
     }
-  }, 'Could not change the settings');
+    return notice;
+  }, 'Could not change the settings', 'Changing the settings…');
 
   const forget = () => {
     Alert.alert(
@@ -232,8 +243,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
           onPress: () => run(async () => {
             await connection.forgetPhone();
             onDeviceChange(undefined);
-            setNotice('This phone is forgotten by the IndiaNavi. To use it again, pair it again.');
-          }, 'Could not forget the phone'),
+            return 'This phone is forgotten by the IndiaNavi. To use it again, pair it again.';
+          }, 'Could not forget the phone', 'Forgetting this phone…'),
         },
       ]
     );
@@ -291,7 +302,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   return (
     <View style={styles.screen}>
       {update && <KeepAwake />}
-      <ScreenHeader title="Bluetooth" onBack={onBack} disabled={working} />
+      <BusyWindow text={busy} />
+      <ScreenHeader title="Bluetooth" onBack={onBack} disabled={locked} />
 
       <ScrollView contentContainerStyle={styles.content}>
         {!supported && (
@@ -351,7 +363,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                   {connection.info.charging ? ' (charging)' : ''}
                 </Text>
               </View>
-              <Button title="Disconnect" onPress={() => connection.disconnect()} disabled={working} variant="plain" compact />
+              <Button title="Disconnect" onPress={() => connection.disconnect()} disabled={locked} variant="plain" compact />
             </Card>
 
             <SectionTitle>Time and position</SectionTitle>
@@ -360,9 +372,9 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
               the satellites faster. Until it has a fix of its own, the IndiaNavi shows the position of the phone.
             </Hint>
             <View style={styles.row}>
-              <Button title="Set time" onPress={syncTime} disabled={working} compact />
-              <Button title="Send position" onPress={sendPosition} disabled={working} compact />
-              <Button title="Get position" onPress={readPosition} disabled={working} variant="plain" compact />
+              <Button title="Set time" onPress={syncTime} disabled={locked} compact />
+              <Button title="Send position" onPress={sendPosition} disabled={locked} compact />
+              <Button title="Get position" onPress={readPosition} disabled={locked} variant="plain" compact />
             </View>
             {devicePosition !== undefined && <Text style={styles.small}>{positionText(devicePosition)}</Text>}
 
@@ -376,11 +388,11 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
               <Button
                 title={wifi?.running ? 'Switch WiFi off' : 'Switch WiFi on'}
                 onPress={toggleWifi}
-                disabled={working || !wifi}
+                disabled={locked || !wifi}
                 variant={wifi?.running ? 'plain' : 'primary'}
                 compact
               />
-              <Button title="Send files" icon="WIFI_3" onPress={onOpenWifi} disabled={working} variant="secondary" compact />
+              <Button title="Send files" icon="WIFI_3" onPress={onOpenWifi} disabled={locked} variant="secondary" compact />
             </View>
             <Hint>
               The password is never sent over Bluetooth. Scan the QR code from the display with the camera in the file
@@ -395,7 +407,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                   <Switch
                     value={settings.showTrack}
                     onValueChange={(value) => changeSettings({ showTrack: value })}
-                    disabled={working}
+                    disabled={locked}
                     trackColor={{ false: colors.paper, true: colors.green }}
                     thumbColor={colors.ink}
                   />
@@ -405,7 +417,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                   <Switch
                     value={settings.showHeightGraph}
                     onValueChange={(value) => changeSettings({ showHeightGraph: value })}
-                    disabled={working}
+                    disabled={locked}
                     trackColor={{ false: colors.paper, true: colors.green }}
                     thumbColor={colors.ink}
                   />
@@ -420,7 +432,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                           <Pressable
                             key={color.name}
                             onPress={() => changeSettings({ trackColor: value })}
-                            disabled={working || selected}
+                            disabled={locked || selected}
                             accessibilityLabel={color.name}
                             accessibilityState={{ selected }}
                             style={[styles.swatch, { backgroundColor: displayColor(value) }, selected && styles.swatchSelected]}
@@ -439,7 +451,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                       key={seconds}
                       title={formatInterval(seconds)}
                       onPress={() => changeSettings({ updateInterval: seconds })}
-                      disabled={working}
+                      disabled={locked}
                       variant={settings.updateInterval === seconds ? 'primary' : 'plain'}
                       compact
                     />
@@ -472,13 +484,13 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                       <Button
                         title={`Install ${release.tag}`}
                         onPress={installRelease}
-                        disabled={working}
+                        disabled={locked}
                         variant={newer ? 'primary' : 'secondary'}
                       />
                     </>
                   )
                 )}
-                <Button title="Update from a file" onPress={updateFromFile} disabled={working || !connection.info.ota} variant="plain" />
+                <Button title="Update from a file" onPress={updateFromFile} disabled={locked || !connection.info.ota} variant="plain" />
                 <Hint>
                   The newest firmware comes from the releases on GitHub, or pick a firmware file (firmware.bin). The update
                   takes a few minutes, stay close to the IndiaNavi and keep the app open. The old firmware stays if anything
@@ -488,7 +500,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
             )}
 
             <SectionTitle>Phone</SectionTitle>
-            <Button title="Pair another phone" onPress={forget} disabled={working} variant="danger" compact />
+            <Button title="Pair another phone" onPress={forget} disabled={locked} variant="danger" compact />
           </>
         )}
       </ScrollView>
