@@ -28,7 +28,7 @@ const rectangles = (rows) => {
   return result;
 };
 
-// An icon of the IndiaNavi firmware. Use multiples of 32 for size to keep every pixel sharp.
+// An icon of the IndiaNavi firmware. Use multiples of 16 for size to keep every pixel sharp.
 export default memo(function Icon({ name, size = ICON_SIZE, style }) {
   const rects = useMemo(() => rectangles(ICONS[name]), [name]);
   return (
