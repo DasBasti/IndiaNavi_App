@@ -8,6 +8,29 @@ const TRANSPARENT = '7';
 
 const COLORS = DISPLAY_COLORS.map(({ rgb }) => `rgb(${rgb.join(',')})`);
 
+// Icons of the app that the firmware does not have, in the same format. Diagonal lines are 3 pixels wide in a row to
+// look as thick as the 2 pixel lines.
+const APP_ICONS = {
+  back: [
+    '7777777777777777',
+    '7777777777777777',
+    '7777777770007777',
+    '7777777700077777',
+    '7777777000777777',
+    '7777770007777777',
+    '7777700077777777',
+    '7777000777777777',
+    '7777000777777777',
+    '7777700077777777',
+    '7777770007777777',
+    '7777777000777777',
+    '7777777700077777',
+    '7777777770007777',
+    '7777777777777777',
+    '7777777777777777',
+  ],
+};
+
 // Rectangles of the pixels, pixels of the same color in a row are drawn as one rectangle
 const rectangles = (rows) => {
   const result = [];
@@ -30,7 +53,7 @@ const rectangles = (rows) => {
 
 // An icon of the IndiaNavi firmware. Use multiples of 16 for size to keep every pixel sharp.
 export default memo(function Icon({ name, size = ICON_SIZE, style }) {
-  const rects = useMemo(() => rectangles(ICONS[name]), [name]);
+  const rects = useMemo(() => rectangles(ICONS[name] ?? APP_ICONS[name]), [name]);
   return (
     <Svg width={size} height={size} viewBox={`0 0 ${ICON_SIZE} ${ICON_SIZE}`} style={style}>
       {rects.map(({ key, ...rect }) => (

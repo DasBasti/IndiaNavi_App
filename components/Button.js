@@ -10,8 +10,9 @@ const VARIANTS = {
   plain: colors.paper,
 };
 
-// Flat button with a black outline and a hard shadow. It moves into its shadow when it is pressed.
-export default function Button({ title, onPress, disabled, variant = 'primary', icon, compact }) {
+// Flat button with a black outline and a hard shadow. It moves into its shadow when it is pressed. Without a title it
+// shows only the icon.
+export default function Button({ title, onPress, disabled, variant = 'primary', icon, compact, accessibilityLabel }) {
   const background = VARIANTS[variant];
   const color = onColor[background];
   return (
@@ -19,6 +20,7 @@ export default function Button({ title, onPress, disabled, variant = 'primary', 
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled: !!disabled }}
       style={({ pressed }) => [
         styles.button,
@@ -27,9 +29,11 @@ export default function Button({ title, onPress, disabled, variant = 'primary', 
         disabled ? styles.disabled : pressed ? styles.pressed : shadow,
       ]}>
       {icon && <Icon name={icon} size={compact ? 24 : 32} style={disabled && styles.disabledIcon} />}
-      <View style={styles.label}>
-        <Text style={[styles.text, { color }, disabled && styles.disabledText]}>{title}</Text>
-      </View>
+      {title && (
+        <View style={styles.label}>
+          <Text style={[styles.text, { color }, disabled && styles.disabledText]}>{title}</Text>
+        </View>
+      )}
     </Pressable>
   );
 }

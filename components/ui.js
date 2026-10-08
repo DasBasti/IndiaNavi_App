@@ -8,7 +8,7 @@ import { BORDER, PROGRESS_SEGMENTS, colors, font, onColor, shadow } from '../the
 // Title bar of a screen: back button, icon and title
 export const ScreenHeader = ({ title, icon, onBack, disabled }) => (
   <View style={styles.header}>
-    {onBack && <Button title="‹" onPress={onBack} disabled={disabled} variant="plain" compact />}
+    {onBack && <Button icon="back" accessibilityLabel="Back" onPress={onBack} disabled={disabled} variant="plain" />}
     {icon && <Icon name={icon} size={32} />}
     <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
   </View>
