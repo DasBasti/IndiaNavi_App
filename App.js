@@ -98,6 +98,8 @@ export default function App() {
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
   // 'main', 'tracks', 'filter', 'transfer' or 'bluetooth'
   const [screen, setScreen] = useState('main');
+  // the transfer screen sends the prepared files as soon as it is connected
+  const [autoTransfer, setAutoTransfer] = useState(false);
   const [error, setError] = useState(null);
   // { done, total, failed } while the tiles are loaded
   const [progress, setProgress] = useState(null);
@@ -331,12 +333,16 @@ export default function App() {
             device={settings.bleDevice}
             onDeviceChange={(bleDevice) => changeSettings({ bleDevice })}
             onTrackColorChange={(newTrackColor) => changeSettings({ trackColor: newTrackColor })}
-            onOpenWifi={() => setScreen('transfer')}
+            onOpenWifi={() => {
+              setAutoTransfer(false);
+              setScreen('transfer');
+            }}
             onBack={() => setScreen('main')}
           />
         ) : screen === 'transfer' ? (
           <TransferScreen
             files={prepared?.files ?? null}
+            autoStart={autoTransfer}
             device={settings.device ?? {}}
             onDeviceChange={(device) => changeSettings({ device })}
             onTransferred={() => changeSettings({ deviceTrackId: track?.id })}
@@ -356,7 +362,10 @@ export default function App() {
               <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
                 <PaletteStrip size={8} />
               </NavTile>
-              <NavTile label="Device" onPress={() => setScreen('transfer')} disabled={loading}>
+              <NavTile label="Device" onPress={() => {
+                setAutoTransfer(false);
+                setScreen('transfer');
+              }} disabled={loading}>
                 <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
               </NavTile>
               <NavTile label="Bluetooth" onPress={() => setScreen('bluetooth')} disabled={loading}>
@@ -441,7 +450,10 @@ export default function App() {
               </Message>
             )}
             {prepared && !loading && (
-              <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => setScreen('transfer')} />
+              <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => {
+                setAutoTransfer(true);
+                setScreen('transfer');
+              }} />
             )}
           </>
         )}

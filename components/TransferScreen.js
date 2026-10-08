@@ -65,9 +65,10 @@ const progressText = (progress) => {
 };
 
 // Connects to the IndiaNavi, copies the prepared files to its SD card and updates its firmware.
-// files is null when no files are prepared, then only the firmware can be updated.
+// files is null when no files are prepared, then only the firmware can be updated. With autoStart the files are sent as
+// soon as the device is connected.
 // device holds the saved connection: { mode: 'accessPoint' | 'router', ssid, password, address }
-export default function TransferScreen({ files, device, onDeviceChange, onTransferred, onBack }) {
+export default function TransferScreen({ files, autoStart, device, onDeviceChange, onTransferred, onBack }) {
   const [mode, setMode] = useState(device.mode ?? 'accessPoint');
   const [ssid, setSsid] = useState(device.ssid ?? '');
   const [password, setPassword] = useState(device.password ?? '');
@@ -87,6 +88,8 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
   const abort = useRef(null);
   // 'sending' while the firmware is written, 'restarted' when the device installs it
   const [firmware, setFirmware] = useState(null);
+  // the files are sent once by themselves, later transfers are started with the button
+  const autoStartPending = useRef(autoStart);
 
   const busy = connecting || progress !== null || firmware === 'sending';
   const bytes = files?.reduce((sum, file) => sum + file.size, 0) ?? 0;
@@ -224,6 +227,13 @@ export default function TransferScreen({ files, device, onDeviceChange, onTransf
       setProgress(null);
     }
   };
+
+  useEffect(() => {
+    if (connection && files && autoStartPending.current) {
+      autoStartPending.current = false;
+      transfer();
+    }
+  });
 
   const update = async () => {
     setError(null);
