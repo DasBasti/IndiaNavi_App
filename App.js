@@ -20,6 +20,7 @@ import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER } from './modules/map_color';
 import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
 import { autoConnect } from './modules/ble/background';
+import { getPhonePosition } from './modules/ble/phone_position';
 import { TRACK_COLOR_DEFAULT, TRACK_COLOR_MAX } from './modules/ble/protocol';
 import { loadSettings, saveSettings } from './modules/settings';
 import { BORDER, PAGE_PADDING, SHADOW, colors, displayColor, font, shadow } from './theme';
@@ -30,7 +31,7 @@ import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_lib
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
-// Dahner Felsenland, shown as long as there is no track and the map was not moved
+// Dahner Felsenland, shown as long as there is no track, the map was not moved and the phone has no position
 const DEFAULT_VIEW = { lon: 7.765, lat: 49.143, zoom: 13 };
 
 const isView = (view) =>
@@ -91,6 +92,10 @@ export default function App() {
   const [track, setTrack] = useState(() => selectedTrack(settings.trackId));
   // { lon, lat, zoom } of the map, the last position is remembered
   const [view, setView] = useState(() => (isView(settings.view) ? settings.view : DEFAULT_VIEW));
+  const latestView = useRef(view);
+  latestView.current = view;
+  // set when the map is moved, a position of the phone that arrives later does not move it back
+  const viewMoved = useRef(false);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
   // 'main', 'tracks', 'filter', 'transfer' or 'bluetooth'
   const [screen, setScreen] = useState('main');
@@ -131,6 +136,7 @@ export default function App() {
   }, []);
 
   const changeView = useCallback((newView) => {
+    viewMoved.current = true;
     setView(newView);
     if (!track) {
       // the area follows the map, so the prepared files do not match it anymore
@@ -138,6 +144,26 @@ export default function App() {
     }
     changeSettings({ view: newView });
   }, [changeSettings, track]);
+
+  // without a track the map is centered on the phone, when the app starts and when the track is closed
+  const hasTrack = track !== null;
+  useEffect(() => {
+    if (hasTrack) {
+      return;
+    }
+    viewMoved.current = false;
+    let cancelled = false;
+    getPhonePosition({ quick: true })
+      .then(({ longitude, latitude }) => {
+        if (!cancelled && !viewMoved.current) {
+          changeView({ lon: longitude, lat: latitude, zoom: latestView.current.zoom });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [hasTrack, changeView]);
 
   const showTrack = useCallback((newTrack) => {
     abort.current?.abort();

@@ -11,8 +11,9 @@ const MAX_AGE = 15 * 60 * 1000;
 const BACKGROUND_TIMEOUT = 15000;
 
 // Returns { latitude, longitude, altitude, accuracy, timestamp (seconds) }. ask: false is for the background, it
-// does not ask for the permission, uses the last known position and gives up after a while.
-export const getPhonePosition = async ({ ask = true } = {}) => {
+// does not ask for the permission. quick uses the last known position and gives up after a while, the background is
+// always quick.
+export const getPhonePosition = async ({ ask = true, quick = !ask } = {}) => {
   let permission = await Location.getForegroundPermissionsAsync();
   if (permission.status !== 'granted' && ask) {
     permission = await Location.requestForegroundPermissionsAsync();
@@ -21,7 +22,7 @@ export const getPhonePosition = async ({ ask = true } = {}) => {
     throw new Error('The app needs the location permission to send the position of the phone.');
   }
   let location = null;
-  if (ask) {
+  if (!quick) {
     location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
   } else {
     location = await Location.getLastKnownPositionAsync({ maxAge: MAX_AGE, requiredAccuracy: MAX_ACCURACY });
