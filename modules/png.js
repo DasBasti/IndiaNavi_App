@@ -72,6 +72,41 @@ export const encodePalettePng = (indices, width, height, palette, scale = 1) => 
 
 }
 
+// Encodes an image of RGBA pixels as PNG without alpha, every pixel as a square of scale x scale pixels like above
+export const encodeRgbPng = (rgba, width, height, scale = 1) => {
+
+    const outWidth = width * scale;
+    const outHeight = height * scale;
+
+    const header = new Uint8Array(13);
+    const view = new DataView(header.buffer);
+    view.setUint32(0, outWidth);
+    view.setUint32(4, outHeight);
+    header[8] = 8; // bit depth
+    header[9] = 2; // RGB
+
+    const stride = outWidth * 3 + 1;
+    const rows = new Uint8Array(stride * outHeight);
+    for (let y = 0; y < outHeight; y++) {
+        const source = Math.floor(y / scale) * width;
+        const row = y * stride + 1;
+        for (let x = 0; x < outWidth; x++) {
+            const pixel = (source + Math.floor(x / scale)) * 4;
+            rows[row + x * 3] = rgba[pixel];
+            rows[row + x * 3 + 1] = rgba[pixel + 1];
+            rows[row + x * 3 + 2] = rgba[pixel + 2];
+        }
+    }
+
+    return concat([
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk("IHDR", header),
+        chunk("IDAT", pako.deflate(rows)),
+        chunk("IEND", new Uint8Array(0)),
+    ]);
+
+}
+
 export const pngDataUri = (bytes) => {
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) {

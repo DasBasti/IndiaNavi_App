@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import Button from './Button';
 import TileServerSetting from './TileServerSetting';
 import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
 import { DEFAULT_FILTER, DISPLAY_COLORS, SHARE_STEPS, convertPixels, findFilterEntry } from '../modules/map_color';
-import { encodePalettePng, pngDataUri } from '../modules/png';
+import { encodePalettePng, encodeRgbPng, pngDataUri } from '../modules/png';
 import { fetchTile } from '../modules/tile_loader';
 import { ZOOM_LEVELS } from '../modules/tiles';
 
 const PADDING = 16;
 const GAP = 8;
 
-// converted tiles are enlarged before they are shown, so the dithering stays visible
+// tiles are enlarged before they are shown, so the pixels and the dithering stay sharp when zoomed in
 const PREVIEW_SCALE = 4;
+const MAX_ZOOM = 8;
+// a touch that moves less than this is a tap that picks a pixel
+const TAP_SLOP = 8;
+const NO_ZOOM = { scale: 1, x: 0, y: 0 };
 
 // the preview shows the colors like the display does, they are darker than the pure colors
 const DISPLAY_PALETTE = DISPLAY_COLORS.map((color) => color.panel);
@@ -120,6 +124,9 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
   const [picked, setPicked] = useState(null);
   // entry and color slot whose display color is changed: { index, slot }
   const [editing, setEditing] = useState(null);
+  // both tiles are zoomed and moved together: scale and the position of the zoomed tile in the frame
+  const [zoom, setZoom] = useState(NO_ZOOM);
+  const [scrolling, setScrolling] = useState(true);
 
   useEffect(() => setDraft(filter), [filter]);
 
@@ -128,8 +135,12 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
     setImage(null);
     setError(null);
     setPicked(null);
+    setZoom(NO_ZOOM);
     fetchTile(tileUrlTemplate, tile, controller.signal)
-      .then(({ png, ...pixels }) => setImage({ uri: pngDataUri(png), ...pixels }))
+      .then(({ png, ...pixels }) => setImage({
+        uri: pngDataUri(encodeRgbPng(pixels.rgba, pixels.width, pixels.height, PREVIEW_SCALE)),
+        ...pixels,
+      }))
       .catch((e) => {
         if (!controller.signal.aborted) {
           setError(`Could not load the tile: ${e.message}`);
@@ -148,16 +159,80 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
 
   const pickedEntry = picked && findFilterEntry(draft, ...picked.rgb);
 
-  const pick = ({ nativeEvent }) => {
+  // frameX and frameY are the position of the tap in the frame of the tile
+  const pick = (frameX, frameY) => {
     if (image === null) {
       return;
     }
-    const x = Math.min(Math.max(Math.floor(nativeEvent.locationX / imageSize * image.width), 0), image.width - 1);
-    const y = Math.min(Math.max(Math.floor(nativeEvent.locationY / imageSize * image.height), 0), image.height - 1);
+    const size = imageSize * zoom.scale;
+    const x = Math.min(Math.max(Math.floor((frameX - zoom.x) / size * image.width), 0), image.width - 1);
+    const y = Math.min(Math.max(Math.floor((frameY - zoom.y) / size * image.height), 0), image.height - 1);
     const offset = (y * image.width + x) * 4;
     setPicked({ x, y, rgb: [image.rgba[offset], image.rgba[offset + 1], image.rgba[offset + 2]] });
     setEditing(null);
   };
+
+  // the zoomed tile always covers the whole frame
+  const limitZoom = (scale, x, y) => {
+    const limited = Math.min(Math.max(scale, 1), MAX_ZOOM);
+    const min = imageSize - imageSize * limited;
+    return { scale: limited, x: Math.min(Math.max(x, min), 0), y: Math.min(Math.max(y, min), 0) };
+  };
+
+  const latest = useRef({});
+  latest.current = { zoom, pick, limitZoom };
+  // start of the gesture, rebased when the number of fingers changes:
+  // { zoom, fingers, x, y, distance } and the origin of the frame on the page
+  const gesture = useRef(null);
+
+  // two fingers zoom around the point between them, one finger moves the zoomed tile, a tap picks a pixel
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: ({ nativeEvent }) => {
+      setScrolling(false);
+      gesture.current = {
+        originX: nativeEvent.pageX - nativeEvent.locationX,
+        originY: nativeEvent.pageY - nativeEvent.locationY,
+        fingers: 1,
+        x: nativeEvent.locationX,
+        y: nativeEvent.locationY,
+        distance: 0,
+        zoom: latest.current.zoom,
+        moved: false,
+      };
+    },
+    onPanResponderMove: ({ nativeEvent: { touches } }) => {
+      const g = gesture.current;
+      const fingers = Math.min(touches.length, 2);
+      const x = (fingers === 2 ? (touches[0].pageX + touches[1].pageX) / 2 : touches[0].pageX) - g.originX;
+      const y = (fingers === 2 ? (touches[0].pageY + touches[1].pageY) / 2 : touches[0].pageY) - g.originY;
+      const distance = fingers === 2 ? Math.hypot(touches[0].pageX - touches[1].pageX, touches[0].pageY - touches[1].pageY) : 0;
+      if (fingers !== g.fingers) {
+        Object.assign(g, { fingers, x, y, distance, zoom: latest.current.zoom });
+        return;
+      }
+      if (fingers === 2 || Math.hypot(x - g.x, y - g.y) > TAP_SLOP) {
+        g.moved = true;
+      }
+      if (!g.moved) {
+        return;
+      }
+      const scale = fingers === 2 ? g.zoom.scale * distance / Math.max(g.distance, 1) : g.zoom.scale;
+      const factor = scale / g.zoom.scale;
+      // the point of the tile below the fingers stays below them
+      setZoom(latest.current.limitZoom(scale, x - (g.x - g.zoom.x) * factor, y - (g.y - g.zoom.y) * factor));
+    },
+    onPanResponderRelease: () => {
+      const g = gesture.current;
+      setScrolling(true);
+      if (!g.moved && g.fingers <= 1) {
+        latest.current.pick(g.x, g.y);
+      }
+    },
+    onPanResponderTerminate: () => setScrolling(true),
+  })).current;
 
   const changeEntry = (index, entry) => setDraft(draft.map((old, i) => (i === index ? entry : old)));
 
@@ -203,7 +278,7 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
     <View style={styles.screen}>
       <ScreenHeader title="Conversion filter" onBack={onBack} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} scrollEnabled={scrolling}>
         <TileServerSetting url={tileUrlTemplate} onChange={onTileUrlChange} />
 
         <View style={styles.row}>
@@ -227,25 +302,40 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
 
         <View style={styles.images}>
           {[image?.uri, converted].map((uri, index) => (
-            <Pressable key={index} onPress={pick} style={[styles.image, { width: imageSize, height: imageSize }]}>
-              {uri && <Image source={{ uri }} style={{ width: imageSize, height: imageSize }} fadeDuration={0} />}
+            <View key={index} style={[styles.image, { width: imageSize, height: imageSize }]}>
+              {uri && (
+                <Image
+                  source={{ uri }}
+                  style={{
+                    position: 'absolute',
+                    left: zoom.x,
+                    top: zoom.y,
+                    width: imageSize * zoom.scale,
+                    height: imageSize * zoom.scale,
+                  }}
+                  fadeDuration={0}
+                />
+              )}
               {picked && (
                 <View
                   pointerEvents="none"
                   style={[styles.marker, {
-                    left: (picked.x + 0.5) / image.width * imageSize - 8,
-                    top: (picked.y + 0.5) / image.height * imageSize - 8,
+                    left: zoom.x + (picked.x + 0.5) / image.width * imageSize * zoom.scale - 8,
+                    top: zoom.y + (picked.y + 0.5) / image.height * imageSize * zoom.scale - 8,
                   }]}
                 />
               )}
-            </Pressable>
+              <View style={StyleSheet.absoluteFill} {...panResponder.panHandlers} />
+            </View>
           ))}
         </View>
         {error ? (
           <Message tone="red">{error}</Message>
         ) : (
           <Hint>
-            {image ? 'Original and converted tile. Tap a pixel to see its filter entry.' : 'Loading tile…'}
+            {image
+              ? 'Original and converted tile. Pinch to zoom in, tap a pixel to see its filter entry.'
+              : 'Loading tile…'}
           </Hint>
         )}
 
@@ -323,6 +413,7 @@ const styles = StyleSheet.create({
     gap: GAP,
   },
   image: {
+    overflow: 'hidden',
     backgroundColor: colors.paper,
     borderWidth: BORDER,
     borderColor: colors.ink,
