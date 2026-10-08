@@ -111,6 +111,23 @@ export const BusyWindow = ({ text }) => {
   );
 };
 
+// Window over the screen with the progress of a long task, it catches the touches and the back button until the task
+// ends or is cancelled. detail is a smaller line below the bar.
+export const ProgressWindow = ({ visible, text, done, total, detail, onCancel }) => (
+  <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={() => { }}>
+    <View style={styles.busyBackdrop}>
+      <View style={[styles.card, styles.busyCard, shadow]}>
+        <Text style={styles.busyText}>{text}</Text>
+        <ProgressBar done={done} total={total} />
+        <View style={styles.progressRow}>
+          <Text style={styles.progressDetail}>{detail}</Text>
+          {onCancel && <Button title="Cancel" onPress={onCancel} variant="danger" compact />}
+        </View>
+      </View>
+    </View>
+  </Modal>
+);
+
 export const Input = (props) => (
   <TextInput
     placeholderTextColor={colors.ink + '99'}
@@ -193,6 +210,17 @@ const styles = StyleSheet.create({
     fontFamily: font.mono,
     fontWeight: 'bold',
     fontSize: 16,
+    color: colors.ink,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  progressDetail: {
+    flexShrink: 1,
+    fontFamily: font.mono,
     color: colors.ink,
   },
   message: {

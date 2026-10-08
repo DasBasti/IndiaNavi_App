@@ -12,7 +12,7 @@ import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
 import MapSearch from './components/MapSearch';
 import MapView, { areaColor } from './components/MapView';
-import { Badge, Card, Hint, Message, PaletteStrip, ProgressBar } from './components/ui';
+import { Badge, Card, Hint, Message, PaletteStrip, ProgressWindow } from './components/ui';
 
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
@@ -418,24 +418,20 @@ export default function App() {
               <Button title="+" onPress={() => changeMargin(1)} disabled={loading} variant="plain" compact />
             </View>
 
-            {loading ? (
-              <>
-                <ProgressBar done={progress.done} total={progress.total} />
-                <View style={styles.row}>
-                  <Text style={styles.small}>
-                    {progress.done}/{progress.total} tiles
-                    {progress.failed > 0 && `, ${progress.failed} failed`}
-                  </Text>
-                  <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" compact />
-                </View>
-              </>
-            ) : (
-              <Button
-                title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
-                icon="SD"
-                onPress={prepare}
-              />
-            )}
+            <Button
+              title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
+              icon="SD"
+              onPress={prepare}
+              disabled={loading}
+            />
+            <ProgressWindow
+              visible={loading}
+              text="Loading tiles"
+              done={progress?.done ?? 0}
+              total={progress?.total ?? 0}
+              detail={progress && `${progress.done}/${progress.total} tiles${progress.failed > 0 ? `, ${progress.failed} failed` : ''}`}
+              onCancel={() => abort.current?.abort()}
+            />
 
             {prepared && (
               <Message tone={prepared.failed ? 'red' : 'green'} icon={prepared.failed ? 'noSD' : 'SD'}>
