@@ -35,6 +35,11 @@ Files (tiles and track) are still sent over WiFi, see `wifi_upload_api.md`.
 - The WiFi password is **never** sent over Bluetooth. The WiFi access point can be switched on and off and its
   name is reported, but the phone has to read the password from the QR code on the display (as before).
 
+The app connects to the paired IndiaNavi by itself while it is open (`modules/ble/auto_connect.js`): it scans for
+the advertisement of the remembered device, connects as soon as it is seen, writes *Time* and *Position in*, and keeps
+the connection for the Bluetooth screen. It never opens a permission dialog in the background and gives up after
+five failed tries until the app comes back to the foreground.
+
 Advertising: connectable, interval 500 to 600 ms, the 128 bit service UUID in the advertisement and the name
 `IndiaNavi-XXXX` (the same suffix as the WiFi access point) in the scan response.
 
