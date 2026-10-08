@@ -7,7 +7,7 @@ import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
 import { DEFAULT_FILTER, DISPLAY_COLORS, SHARE_STEPS, convertPixels, findFilterEntry } from '../modules/map_color';
 import { encodePalettePng, encodeRgbPng, pngDataUri } from '../modules/png';
-import { fetchTile } from '../modules/tile_loader';
+import { loadOriginal } from '../modules/tile_loader';
 import { ZOOM_LEVELS } from '../modules/tiles';
 
 const PADDING = 16;
@@ -136,8 +136,8 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
     setError(null);
     setPicked(null);
     setZoom(NO_ZOOM);
-    fetchTile(tileUrlTemplate, tile, controller.signal)
-      .then(({ png, ...pixels }) => setImage({
+    loadOriginal(tileUrlTemplate, tile, controller.signal)
+      .then((pixels) => setImage({
         uri: pngDataUri(encodeRgbPng(pixels.rgba, pixels.width, pixels.height, PREVIEW_SCALE)),
         ...pixels,
       }))

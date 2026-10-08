@@ -153,11 +153,12 @@ const folderOf = (path) => path.slice(0, path.lastIndexOf("/"));
 const nameOf = (path) => path.slice(path.lastIndexOf("/") + 1).toLowerCase();
 
 // Copies the files ({ path, uri, size }, paths relative to the SD card) to the device.
-// Tiles that are already on the card are skipped, track.gpx is sent last and always. Without track.gpx in the files the
-// old track is deleted from the card.
+// Tiles that are already on the card are skipped, with replaceTiles all of them are sent again, for example after the
+// filter was changed. track.gpx is sent last and always. Without track.gpx in the files the old track is deleted from
+// the card, unless keepTrack is set.
 // onProgress gets { phase: "check" | "upload" | "finish", done, total, bytesDone, bytesTotal }.
 // Returns { uploaded, skipped, bytes }.
-export const transferToDevice = async (base, files, { signal, onProgress } = {}) => {
+export const transferToDevice = async (base, files, { signal, onProgress, replaceTiles = false, keepTrack = false } = {}) => {
 
     const info = await getDeviceInfo(base, signal);
     if (!info.sd.present) {
@@ -168,19 +169,23 @@ export const transferToDevice = async (base, files, { signal, onProgress } = {})
     const tiles = files.filter((file) => file.path.startsWith("MAPS/"));
 
     // which tiles are already on the card
-    const folders = [...new Set(tiles.map((tile) => folderOf(tile.path)))];
-    const listings = new Map();
-    let checked = 0;
-    onProgress?.({ phase: "check", done: 0, total: folders.length });
-    await runParallel(folders, async (folder) => {
-        listings.set(folder, await listFolder(base, folder, signal));
-        onProgress?.({ phase: "check", done: ++checked, total: folders.length });
-    }, signal);
+    let missing = tiles;
+    if (!replaceTiles) {
+        const folders = [...new Set(tiles.map((tile) => folderOf(tile.path)))];
+        const listings = new Map();
+        let checked = 0;
+        onProgress?.({ phase: "check", done: 0, total: folders.length });
+        await runParallel(folders, async (folder) => {
+            listings.set(folder, await listFolder(base, folder, signal));
+            onProgress?.({ phase: "check", done: ++checked, total: folders.length });
+        }, signal);
+        missing = tiles.filter((tile) => listings.get(folderOf(tile.path)).get(nameOf(tile.path)) !== tile.size);
+    }
 
-    const missing = tiles.filter((tile) => listings.get(folderOf(tile.path)).get(nameOf(tile.path)) !== tile.size);
     const upload = [...missing, ...track];
     const bytesTotal = upload.reduce((sum, file) => sum + file.size, 0);
-    if (bytesTotal + SPACE_RESERVE > info.sd.free) {
+    // replaced tiles take the place of the old ones, a full card answers with 507
+    if (!replaceTiles && bytesTotal + SPACE_RESERVE > info.sd.free) {
         throw new Error(`Not enough space on the SD card of the IndiaNavi: ${bytesTotal} bytes needed, ${info.sd.free} free`);
     }
 
@@ -216,7 +221,7 @@ export const transferToDevice = async (base, files, { signal, onProgress } = {})
             await putFile(base, file, signal);
             uploaded(file);
         }
-        if (track.length === 0) {
+        if (track.length === 0 && !keepTrack) {
             await deleteFile(base, TRACK_PATH, signal);
         }
     } catch (error) {

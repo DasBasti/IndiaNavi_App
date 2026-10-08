@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { File } from 'expo-file-system';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -24,6 +24,7 @@ import {
   connectToDeviceWifi,
   disconnectFromDeviceWifi,
 } from '../modules/indianavi-wifi';
+import { listStoredTiles, listTileFiles } from '../modules/sd_card';
 import { parseWifiQr } from '../modules/wifi_qr';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -92,6 +93,8 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
   const autoStartPending = useRef(autoStart);
 
   const busy = connecting || progress !== null || firmware === 'sending';
+  // number of tiles on the phone, of all tracks
+  const storedTiles = useMemo(() => (connection ? listStoredTiles().length : 0), [connection]);
   const bytes = files?.reduce((sum, file) => sum + file.size, 0) ?? 0;
 
   // leaving the screen ends the transfer and the connection to the access point
@@ -208,18 +211,24 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
     connect(credentials);
   };
 
-  const transfer = async () => {
+  // the prepared files, or all tiles on the phone with allTiles
+  const transfer = async ({ allTiles = false } = {}) => {
     const controller = new AbortController();
     abort.current = controller;
     setError(null);
     setResult(null);
     setProgress({ phase: 'check', done: 0, total: 0 });
     try {
-      setResult(await transferToDevice(connection.base, files, {
+      const sent = await transferToDevice(connection.base, allTiles ? listTileFiles(listStoredTiles()) : files, {
         signal: controller.signal,
         onProgress: setProgress,
-      }));
-      onTransferred();
+        replaceTiles: allTiles,
+        keepTrack: allTiles,
+      });
+      setResult({ ...sent, allTiles });
+      if (!allTiles) {
+        onTransferred();
+      }
     } catch (e) {
       setError(controller.signal.aborted ? 'The transfer was cancelled.' : `Transfer failed: ${e.message}`);
     } finally {
@@ -353,7 +362,7 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
 
         {error && <Message tone="red" icon="WIFI_0">{error}</Message>}
 
-        {connection && files && (
+        {connection && (
           <>
             <SectionTitle>Files</SectionTitle>
             {progress ? (
@@ -363,11 +372,22 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
                 <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" />
               </>
             ) : (
-              <Button title="Send to IndiaNavi" icon="SD" onPress={transfer} />
+              <>
+                {files && <Button title="Send to IndiaNavi" icon="SD" onPress={() => transfer()} />}
+                <Button
+                  title="Update all tiles on the IndiaNavi"
+                  icon="SD"
+                  onPress={() => transfer({ allTiles: true })}
+                  disabled={busy || storedTiles === 0}
+                  variant="secondary"
+                />
+              </>
             )}
             <Hint>
-              Tiles that are already on the SD card are skipped. The IndiaNavi stores about {FILES_PER_SECOND} tiles
-              per second and shows the progress on its display.
+              {files && 'Send to IndiaNavi skips the tiles that are already on the SD card. '}
+              Update all tiles sends all {storedTiles} tiles on the phone again, for example after the filter was
+              changed, the track on the IndiaNavi stays. The IndiaNavi stores about {FILES_PER_SECOND} tiles per second
+              and shows the progress on its display.
             </Hint>
           </>
         )}
@@ -396,8 +416,10 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
 
         {result && (
           <Message tone="green" icon="SD">
-            Done. {result.uploaded} files ({megabytes(result.bytes)}) sent, {result.skipped} tiles were already on
-            the IndiaNavi. The new track is loaded when the device shows the map.
+            {result.allTiles
+              ? `Done. ${result.uploaded} tiles (${megabytes(result.bytes)}) sent again. The IndiaNavi shows them when it draws the map.`
+              : `Done. ${result.uploaded} files (${megabytes(result.bytes)}) sent, ${result.skipped} tiles were already on ` +
+                'the IndiaNavi. The new track is loaded when the device shows the map.'}
           </Message>
         )}
       </ScrollView>

@@ -9,6 +9,12 @@ export const tilePath = ({ zoom, x, y }) => `MAPS/${zoom}/${x}/${y}.raw`;
 
 export const tileFile = (tile) => new File(sdCardRoot(), tilePath(tile));
 
+// The tiles as the server sent them, so they can be converted again with another filter:
+//   {zoom}/{x}/{y}.png
+export const originalsRoot = () => new Directory(Paths.document, "originals");
+
+export const originalFile = ({ zoom, x, y }) => new File(originalsRoot(), `${zoom}/${x}/${y}.png`);
+
 export const TRACK_PATH = "track.gpx";
 
 export const trackFile = () => new File(sdCardRoot(), TRACK_PATH);
@@ -29,21 +35,48 @@ export const deleteTrack = () => {
     }
 }
 
-// Deletes all tiles, for example when they have to be loaded from another server
+// Deletes all tiles and their originals, for example when they have to be loaded from another server
 export const deleteTiles = () => {
-    const maps = new Directory(sdCardRoot(), "MAPS");
-    if (maps.exists) {
-        maps.delete();
+    for (const directory of [new Directory(sdCardRoot(), "MAPS"), originalsRoot()]) {
+        if (directory.exists) {
+            directory.delete();
+        }
     }
 }
 
-// Returns the files to transfer to the device as a list of { path, uri, size }.
-// Tiles of other tracks stay on the phone, but are not part of the list.
-export const listSdCardFiles = (tiles) => {
+// Returns all tiles on the phone as { zoom, x, y }, of all tracks
+export const listStoredTiles = () => {
 
-    const files = [[TRACK_PATH, trackFile()], ...tiles.map((tile) => [tilePath(tile), tileFile(tile)])];
-    return files
-        .filter(([, file]) => hasFile(file))
-        .map(([path, file]) => ({ path, uri: file.uri, size: file.size }));
+    const maps = new Directory(sdCardRoot(), "MAPS");
+    if (!maps.exists) {
+        return [];
+    }
+    const numbered = (directory) =>
+        directory.list().filter((entry) => entry instanceof Directory && /^\d+$/.test(entry.name));
+    const tiles = [];
+    for (const zoom of numbered(maps)) {
+        for (const x of numbered(zoom)) {
+            for (const entry of x.list()) {
+                const y = entry instanceof File && /^(\d+)\.raw$/.exec(entry.name);
+                if (y) {
+                    tiles.push({ zoom: Number(zoom.name), x: Number(x.name), y: Number(y[1]) });
+                }
+            }
+        }
+    }
+    return tiles;
 
 }
+
+const existingFiles = (files) => files
+    .filter(([, file]) => hasFile(file))
+    .map(([path, file]) => ({ path, uri: file.uri, size: file.size }));
+
+const tileFiles = (tiles) => tiles.map((tile) => [tilePath(tile), tileFile(tile)]);
+
+// Returns the files to transfer to the device as a list of { path, uri, size }.
+// Tiles of other tracks stay on the phone, but are not part of the list.
+export const listSdCardFiles = (tiles) => existingFiles([[TRACK_PATH, trackFile()], ...tileFiles(tiles)]);
+
+// Returns the files of the tiles, without the track
+export const listTileFiles = (tiles) => existingFiles(tileFiles(tiles));

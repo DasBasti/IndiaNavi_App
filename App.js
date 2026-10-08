@@ -23,7 +23,7 @@ import { getPhonePosition } from './modules/ble/phone_position';
 import { TRACK_COLOR_DEFAULT, TRACK_COLOR_MAX } from './modules/ble/protocol';
 import { loadSettings, saveSettings } from './modules/settings';
 import { BORDER, PAGE_PADDING, SHADOW, colors, displayColor, font, shadow } from './theme';
-import { loadTiles } from './modules/tile_loader';
+import { loadTiles, reconvertTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
 import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
 import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_library';
@@ -101,8 +101,10 @@ export default function App() {
   // the transfer screen sends the prepared files as soon as it is connected
   const [autoTransfer, setAutoTransfer] = useState(false);
   const [error, setError] = useState(null);
-  // { done, total, failed } while the tiles are loaded
+  // { done, total, failed } while the tiles are loaded or converted
   const [progress, setProgress] = useState(null);
+  // title of the progress window
+  const [progressTitle, setProgressTitle] = useState('');
   // { files, bytes, failed } when the files are ready for the transfer
   const [prepared, setPrepared] = useState(null);
   const abort = useRef(null);
@@ -233,11 +235,11 @@ export default function App() {
     setPrepared(null);
   };
 
-  // tile server and filter decide how the tiles look, so the tiles on the phone are deleted when they change
-  const changeTileSettings = (changes) => {
+  // tiles of another server are loaded again, so the tiles and their originals on the phone are deleted
+  const changeTileUrl = (tileUrl) => {
     try {
       deleteTiles();
-      changeSettings(changes);
+      changeSettings({ tileUrl });
       setError(null);
       setPrepared(null);
     } catch (e) {
@@ -245,10 +247,34 @@ export default function App() {
     }
   };
 
-  const changeTileUrl = (tileUrl) => changeTileSettings({ tileUrl });
-
-  const changeFilter = (newFilter) =>
-    changeTileSettings({ filter: newFilter === DEFAULT_FILTER ? undefined : newFilter });
+  // the tiles on the phone are converted again from their originals. The prepared files stay valid, but tiles that are
+  // already on the IndiaNavi are only replaced with Update all tiles on the Device screen.
+  const changeFilter = async (newFilter) => {
+    changeSettings({ filter: newFilter === DEFAULT_FILTER ? undefined : newFilter });
+    const controller = new AbortController();
+    abort.current = controller;
+    setError(null);
+    setProgressTitle('Converting tiles');
+    setProgress({ done: 0, total: 0, failed: 0 });
+    try {
+      const failed = await reconvertTiles(tileUrlTemplate, newFilter, {
+        signal: controller.signal,
+        onProgress: setProgress,
+      });
+      if (controller.signal.aborted) {
+        setError('Converting was cancelled, some tiles still use the old filter.');
+      } else if (failed.length > 0) {
+        setError(`${failed.length} tiles still use the old filter, they could not be converted (${failed[0].error.message}).`);
+      }
+    } catch (e) {
+      setError(`Could not convert the tiles: ${e.message}`);
+    } finally {
+      if (abort.current === controller) {
+        abort.current = null;
+        setProgress(null);
+      }
+    }
+  };
 
   // the Android back button leaves the tracks and filter screen, the transfer and Bluetooth screens handle it themselves
   useEffect(() => {
@@ -275,6 +301,7 @@ export default function App() {
     abort.current = controller;
     setError(null);
     setPrepared(null);
+    setProgressTitle('Loading tiles');
     setProgress({ done: 0, total: tiles.length, failed: 0 });
     try {
       if (track) {
@@ -310,6 +337,14 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
+        <ProgressWindow
+          visible={loading}
+          text={progressTitle}
+          done={progress?.done ?? 0}
+          total={progress?.total ?? 0}
+          detail={progress && `${progress.done}/${progress.total} tiles${progress.failed > 0 ? `, ${progress.failed} failed` : ''}`}
+          onCancel={() => abort.current?.abort()}
+        />
         {screen === 'tracks' ? (
           <TracksScreen
             selectedId={track?.id}
@@ -432,14 +467,6 @@ export default function App() {
               icon="SD"
               onPress={prepare}
               disabled={loading}
-            />
-            <ProgressWindow
-              visible={loading}
-              text="Loading tiles"
-              done={progress?.done ?? 0}
-              total={progress?.total ?? 0}
-              detail={progress && `${progress.done}/${progress.total} tiles${progress.failed > 0 ? `, ${progress.failed} failed` : ''}`}
-              onCancel={() => abort.current?.abort()}
             />
 
             {prepared && (
