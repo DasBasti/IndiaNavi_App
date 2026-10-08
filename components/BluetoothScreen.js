@@ -10,7 +10,8 @@ import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
 import { downloadRelease, fetchLatestRelease, isNewer } from '../modules/firmware_release';
 import { DISPLAY_COLORS } from '../modules/map_color';
-import { IndiaNaviConnection, isBleSupported, scanForDevices } from '../modules/ble/ble_client';
+import { isBleSupported, scanForDevices } from '../modules/ble/ble_client';
+import { autoConnect } from '../modules/ble/background';
 import { getPhonePosition } from '../modules/ble/phone_position';
 import { FIX_NAMES, UPDATE_INTERVAL_CHOICES, formatInterval } from '../modules/ble/protocol';
 
@@ -41,8 +42,16 @@ const updatePhaseText = ({ phase, done, total, tag }) => {
   return `Sending ${megabytes(done)} of ${megabytes(total)}`;
 };
 
+const sentText = ({ time, position }) =>
+  position
+    ? 'The IndiaNavi got the time and the position of the phone.'
+    : time
+      ? 'The time of the IndiaNavi is set from the phone.'
+      : null;
+
 // Talks to the IndiaNavi over Bluetooth: time and position for the GPS module, WiFi access point, what the display
-// shows and the firmware. device is the remembered { id, name } of the IndiaNavi. onTrackColorChange gets the color
+// shows and the firmware. The connection is the one that the app keeps in the background (auto_connect.js), it stays
+// when the screen closes. device is the remembered { id, name } of the IndiaNavi. onTrackColorChange gets the color
 // of the track on the device, so the map of the app can show it the same way.
 export default function BluetoothScreen({ device, onDeviceChange, onTrackColorChange, onOpenWifi, onBack }) {
   const [connection, setConnection] = useState(null);
@@ -66,10 +75,16 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   const scanAbort = useRef(null);
   const updateAbort = useRef(null);
   const connectionRef = useRef(null);
+  // { connection, promise } of the connection that was set up for this screen
+  const adopted = useRef(null);
+  const noticed = useRef(null);
   const subscriptions = useRef([]);
+  // the app connects in the background, too
+  const [background, setBackground] = useState(autoConnect.getState().state);
 
   // the progress window covers the screen while busy, the controls do not need to show it
-  const locked = connecting || scanning || update !== null;
+  const connectingNow = connecting || background === 'connecting';
+  const locked = connectingNow || scanning || update !== null;
   const working = locked || busy !== null;
 
   const dropSubscriptions = () => {
@@ -80,6 +95,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   const disconnected = useCallback(() => {
     dropSubscriptions();
     connectionRef.current = null;
+    adopted.current = null;
     setConnection(null);
     setWifi(null);
     setSettings(null);
@@ -87,12 +103,11 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     setUpdate(null);
   }, []);
 
-  // leaving the screen ends the connection, the IndiaNavi advertises again for the next time
+  // leaving the screen keeps the connection, the app uses it in the background
   useEffect(() => () => {
     scanAbort.current?.abort();
     updateAbort.current?.abort();
     dropSubscriptions();
-    connectionRef.current?.disconnect();
   }, []);
 
   useEffect(() => {
@@ -105,30 +120,23 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     return () => subscription.remove();
   }, [working, onBack]);
 
-  const connect = useCallback(async (target) => {
-    setError(null);
-    setNotice(null);
-    setFound(null);
-    setConnecting(true);
-    try {
-      const connected = await IndiaNaviConnection.connect(target.id, { onDisconnected: disconnected });
+  // Reads the state of the device and listens to it. Once for each connection, whoever comes first.
+  const adopt = useCallback((connected) => {
+    if (adopted.current?.connection === connected) {
+      return adopted.current.promise;
+    }
+    const promise = (async () => {
       connectionRef.current = connected;
-      onDeviceChange({ id: target.id, name: target.name });
-
-      // the time helps the GPS module of the device to find the satellites, so it is sent right away
-      let synced = false;
-      try {
-        await connected.syncTime();
-        synced = true;
-      } catch {
-        // the user can send it again
-      }
       setWifi(await connected.readWifiStatus());
       const deviceSettings = await connected.readSettings();
       setSettings(deviceSettings);
       if (connected.info.trackColor) {
         onTrackColorChange(deviceSettings.trackColor);
       }
+      if (connectionRef.current !== connected) {
+        return;
+      }
+      dropSubscriptions();
       subscriptions.current = [
         connected.onWifiStatus(setWifi),
         connected.onPosition(setDevicePosition),
@@ -138,17 +146,52 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
         // without internet there is simply no offer
         fetchLatestRelease().then(setRelease, () => setRelease(null));
       }
-      if (synced) {
-        setNotice('The time of the IndiaNavi is set from the phone.');
+    })();
+    adopted.current = { connection: connected, promise };
+    promise.catch(() => {
+      if (adopted.current?.connection === connected) {
+        adopted.current = null;
       }
+    });
+    return promise;
+  }, [onTrackColorChange]);
+
+  const connect = useCallback(async (target) => {
+    setError(null);
+    setNotice(null);
+    setFound(null);
+    setConnecting(true);
+    try {
+      const connected = await autoConnect.connectNow(target);
+      onDeviceChange({ id: target.id, name: target.name });
+      await adopt(connected);
     } catch (e) {
-      connectionRef.current?.disconnect();
-      connectionRef.current = null;
+      autoConnect.disconnect();
       setError(`Could not connect: ${e.message}`);
     } finally {
       setConnecting(false);
     }
-  }, [disconnected, onDeviceChange, onTrackColorChange]);
+  }, [adopt, onDeviceChange]);
+
+  // follows the connection of the app: one that is made in the background, one that ends
+  useEffect(() => {
+    const follow = ({ state, connection: current, sent }) => {
+      setBackground(state);
+      if (connectionRef.current && connectionRef.current !== current) {
+        disconnected();
+      }
+      if (current && state === 'connected') {
+        adopt(current).catch((e) => setError(`Could not connect: ${e.message}`));
+        const text = sentText(sent);
+        if (text && noticed.current !== current) {
+          noticed.current = current;
+          setNotice(text);
+        }
+      }
+    };
+    follow(autoConnect.getState());
+    return autoConnect.subscribe(follow);
+  }, [adopt, disconnected]);
 
   const scan = async () => {
     setError(null);
@@ -157,6 +200,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     setScanning(true);
     const controller = new AbortController();
     scanAbort.current = controller;
+    // the scan of the background has to wait, Android allows one at a time
+    const resume = autoConnect.pause();
     try {
       await scanForDevices((entry) => setFound((current) => (current ? [...current, entry] : [entry])), { signal: controller.signal });
     } catch (e) {
@@ -167,12 +212,13 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
         scanAbort.current = null;
       }
       setScanning(false);
+      resume();
     }
   };
 
-  // the IndiaNavi from the last time
+  // the IndiaNavi from the last time, unless the app is busy with it already
   useEffect(() => {
-    if (device?.id && isBleSupported()) {
+    if (device?.id && isBleSupported() && !autoConnect.getState().connection && autoConnect.getState().state !== 'connecting') {
       connect(device);
     }
     // only when the screen opens
@@ -321,7 +367,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
               code: type in the six digits shown in the box on the display of the IndiaNavi. A new phone can pair for two
               minutes after the IndiaNavi was switched on.
             </Hint>
-            {connecting ? (
+            {connectingNow ? (
               <Message tone="yellow">
                 Connecting… If Android asks for a code, enter the six digits from the display of the IndiaNavi.
               </Message>
@@ -363,7 +409,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                   {connection.info.charging ? ' (charging)' : ''}
                 </Text>
               </View>
-              <Button title="Disconnect" onPress={() => connection.disconnect()} disabled={locked} variant="plain" compact />
+              <Button title="Disconnect" onPress={() => autoConnect.disconnect()} disabled={locked} variant="plain" compact />
             </Card>
 
             <SectionTitle>Time and position</SectionTitle>

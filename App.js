@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import BluetoothIcon from './components/BluetoothIcon';
@@ -19,6 +19,7 @@ import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER } from './modules/map_color';
 import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
+import { autoConnect } from './modules/ble/background';
 import { TRACK_COLOR_DEFAULT, TRACK_COLOR_MAX } from './modules/ble/protocol';
 import { loadSettings, saveSettings } from './modules/settings';
 import { BORDER, PAGE_PADDING, SHADOW, colors, displayColor, font, shadow } from './theme';
@@ -107,6 +108,19 @@ export default function App() {
   );
 
   const tiles = useMemo(() => listTiles(bounds, margin), [bounds, margin]);
+
+  // The remembered IndiaNavi is connected in the background as soon as it is visible, so it gets the time and the
+  // position of the phone and finds the satellites faster. Only while the app is open.
+  const bleDevice = settings.bleDevice;
+  useEffect(() => {
+    autoConnect.setDevice(bleDevice?.id ? bleDevice : undefined);
+  }, [bleDevice]);
+
+  useEffect(() => {
+    autoConnect.setActive(AppState.currentState === 'active');
+    const subscription = AppState.addEventListener('change', (state) => autoConnect.setActive(state === 'active'));
+    return () => subscription.remove();
+  }, []);
 
   const changeSettings = useCallback((changes) => {
     setSettings((current) => {

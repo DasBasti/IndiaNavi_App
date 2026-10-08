@@ -26,6 +26,8 @@ import {
 // Android answers the first access to a protected value only after the user entered the passkey of the display
 const CONNECT_TIMEOUT = 20000;
 const PAIRING_TIMEOUT = 90000;
+// nobody is looking at the pairing dialog of a connection that nobody asked for
+const BACKGROUND_PAIRING_TIMEOUT = 30000;
 const SCAN_TIMEOUT = 10000;
 // the device asks for more, Android settles on what both sides support
 const REQUESTED_MTU = 247;
@@ -46,10 +48,13 @@ const getManager = () => {
 
 export const isBleSupported = () => getManager() !== null;
 
-const requestAndroidPermissions = async () => {
-  const wanted = Platform.Version >= 31
+const androidPermissions = () =>
+  Platform.Version >= 31
     ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT]
     : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
+
+const requestAndroidPermissions = async () => {
+  const wanted = androidPermissions();
   const result = await PermissionsAndroid.requestMultiple(wanted);
   if (!wanted.every((permission) => result[permission] === PermissionsAndroid.RESULTS.GRANTED)) {
     throw new Error(
@@ -73,6 +78,23 @@ export const prepareBluetooth = async () => {
     await bluetooth.enable();
   }
   return bluetooth;
+};
+
+// Like prepareBluetooth, but never shows a dialog: null if a permission is missing or Bluetooth is switched off.
+// For everything that runs in the background.
+const readyBluetooth = async () => {
+  const bluetooth = getManager();
+  if (!bluetooth) {
+    return null;
+  }
+  if (Platform.OS === 'android') {
+    for (const permission of androidPermissions()) {
+      if (!(await PermissionsAndroid.check(permission))) {
+        return null;
+      }
+    }
+  }
+  return (await bluetooth.state()) === 'PoweredOn' ? bluetooth : null;
 };
 
 // Looks for IndiaNavis around. onDevice gets { id, name, rssi } the first time a device is seen.
@@ -103,6 +125,38 @@ export const scanForDevices = async (onDevice, { timeout = SCAN_TIMEOUT, signal 
   });
 };
 
+// Looks for one device without dialogs. Resolves true when it was seen, false after the time, when the signal is
+// aborted or when Bluetooth is not ready.
+export const waitForDevice = async (deviceId, { timeout = SCAN_TIMEOUT, signal } = {}) => {
+  const bluetooth = await readyBluetooth();
+  if (!bluetooth || signal?.aborted) {
+    return false;
+  }
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const finish = (found, error) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      bluetooth.stopDeviceScan();
+      if (error) {
+        reject(error);
+      } else {
+        resolve(found);
+      }
+    };
+    const abort = () => finish(false);
+    timer = setTimeout(() => finish(false), timeout);
+    signal?.addEventListener('abort', abort);
+    bluetooth.startDeviceScan([SERVICE_UUID], { allowDuplicates: false }, (error, device) => {
+      if (error) {
+        finish(false, error);
+      } else if (device?.id === deviceId) {
+        finish(true);
+      }
+    });
+  });
+};
+
 const withTimeout = (promise, ms, message) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -128,16 +182,20 @@ export class IndiaNaviConnection {
   }
 
   // Connects and reads the device info. The first access to a protected value starts the pairing: Android asks
-  // for the six digits that the display of the IndiaNavi shows.
-  static async connect(deviceId, { onDisconnected } = {}) {
-    const bluetooth = await prepareBluetooth();
+  // for the six digits that the display of the IndiaNavi shows. quiet: for the background, fails instead of asking
+  // for permissions or to switch Bluetooth on.
+  static async connect(deviceId, { onDisconnected, quiet = false } = {}) {
+    const bluetooth = quiet ? await readyBluetooth() : await prepareBluetooth();
+    if (!bluetooth) {
+      throw new Error('Bluetooth is not ready.');
+    }
     const device = await bluetooth.connectToDevice(deviceId, { requestMTU: REQUESTED_MTU, timeout: CONNECT_TIMEOUT });
     try {
       await device.discoverAllServicesAndCharacteristics();
       const connection = new IndiaNaviConnection(device, null);
       connection.info = await withTimeout(
         connection.readInfo(),
-        PAIRING_TIMEOUT,
+        quiet ? BACKGROUND_PAIRING_TIMEOUT : PAIRING_TIMEOUT,
         'Pairing took too long. Switch the IndiaNavi off and on, then try again.'
       );
       if (connection.info.api !== API_VERSION) {
