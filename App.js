@@ -8,6 +8,7 @@ import BluetoothScreen from './components/BluetoothScreen';
 import Button from './components/Button';
 import Icon from './components/Icon';
 import FilterScreen from './components/FilterScreen';
+import RecordingsScreen from './components/RecordingsScreen';
 import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
 import MapSearch from './components/MapSearch';
@@ -27,6 +28,7 @@ import { loadTiles, reconvertTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
 import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
 import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_library';
+import { trackDeleted as recordingTrackDeleted } from './modules/recording_library';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
@@ -96,7 +98,7 @@ export default function App() {
   // set when the map is moved, a position of the phone that arrives later does not move it back
   const viewMoved = useRef(false);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
-  // 'main', 'tracks', 'filter', 'transfer' or 'bluetooth'
+  // 'main', 'tracks', 'filter', 'transfer', 'bluetooth' or 'recordings'
   const [screen, setScreen] = useState('main');
   // the transfer screen sends the prepared files as soon as it is connected
   const [autoTransfer, setAutoTransfer] = useState(false);
@@ -205,6 +207,7 @@ export default function App() {
   };
 
   const trackDeleted = (id) => {
+    recordingTrackDeleted(id);
     if (track?.id === id) {
       abort.current?.abort();
       setPrepared(null);
@@ -372,7 +375,19 @@ export default function App() {
               setAutoTransfer(false);
               setScreen('transfer');
             }}
+            onOpenRecordings={() => setScreen('recordings')}
             onBack={() => setScreen('main')}
+          />
+        ) : screen === 'recordings' ? (
+          <RecordingsScreen
+            device={settings.bleDevice}
+            wifiDevice={settings.device ?? {}}
+            onShowTrack={selectTrack}
+            onOpenWifi={() => {
+              setAutoTransfer(false);
+              setScreen('transfer');
+            }}
+            onBack={() => setScreen('bluetooth')}
           />
         ) : screen === 'transfer' ? (
           <TransferScreen

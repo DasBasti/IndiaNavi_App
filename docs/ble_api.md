@@ -14,9 +14,11 @@ The phone can use Bluetooth to
 - switch the WiFi access point on and off,
 - show or hide the track and the height graph, choose the color of the track and set how often the screen is
   updated,
+- start and stop a track recording, list and delete the recorded tracks,
 - update the firmware.
 
-Files (tiles and track) are still sent over WiFi, see `wifi_upload_api.md`.
+Files (tiles and track) are still sent over WiFi, and recorded tracks are downloaded over WiFi, see
+`wifi_upload_api.md`.
 
 ## Pairing and security
 
@@ -60,6 +62,8 @@ All numbers are little endian.
 | 09 | OTA control | read, write, notify | commands and status of a firmware update |
 | 0a | OTA data | write without response | chunks of the firmware image |
 | 0b | Device control | write | `0x01` = forget the phone |
+| 0c | Recording | read, write, notify | start, stop and delete recordings, state of the running one |
+| 0d | Recordings | read, write | list of the recorded tracks, in pages |
 
 A write with a wrong length is answered with the ATT error *Invalid Attribute Value Length* (0x0d), a value that
 is not allowed (outside of a range, reserved bits set, unknown command) with *Value Not Allowed* (0x13).
@@ -69,7 +73,7 @@ is not allowed (outside of a range, reserved bits set, unknown command) with *Va
 | Byte | Content |
 |---|---|
 | 0 | API version, 1 |
-| 1 | flags: bit 0 = firmware update supported, bit 1 = charger connected, bit 2 = track color in the settings |
+| 1 | flags: bit 0 = firmware update supported, bit 1 = charger connected, bit 2 = track color in the settings, bit 3 = tracks can be recorded |
 | 2 | battery in percent |
 | 3 | 0 |
 | 4… | firmware version (text, not terminated) |
@@ -149,6 +153,62 @@ anything but 0 in this byte. Reading returns the color + 1.
 ### Device control (0b)
 
 `0x01`: forget the phone that is paired and allow the next one to pair for two minutes. The connection ends.
+
+## Track recording
+
+The device records a track only while a recording is started. Each recording is a GPX file
+`TRACKS/XXXXXXXX.GPX` on the SD card. Its **id** is the start time (seconds since 1970-01-01 UTC), the file name is
+the id as 8 hex digits (`6704A1B0.GPX`), because the card only has 8.3 names. The device writes a point every
+5 seconds while it has a GPS fix (never the position of the phone). The file is valid GPX after every point.
+
+The running recording is stored in NVS: it goes on after a restart or after the device was switched off, with a new
+track segment, until the app stops it. Points are only written while the device is switched on.
+
+Before this, the device wrote every position into `log.gpx`. A firmware with recordings does not write it any more,
+an old `log.gpx` stays on the card.
+
+The phone only uses Recording and Recordings if the Info flag bit 3 is set.
+
+### Recording (0c)
+
+Commands (write):
+
+| Bytes | Command |
+|---|---|
+| `01` | START: start a new recording |
+| `02` | STOP: stop the running recording |
+| `03` + u32 id | DELETE: delete the recording with this id |
+
+START needs the clock of the device (the app writes *Time* when it connects) and is refused with *Value Not Allowed*
+while a recording runs or before the clock was set. STOP without a running recording, and DELETE of the running
+recording or of an id that does not exist are refused with *Value Not Allowed* as well. *Unlikely Error* (0x0e)
+means the SD card can not be used.
+
+Status (read, notify), 16 bytes:
+
+| Bytes | Content |
+|---|---|
+| 0 | 1 while a recording runs, 0 otherwise |
+| 1–3 | 0 |
+| 4–7 | id of the running recording, u32, 0 if none |
+| 8–11 | size of its file in bytes, u32 |
+| 12–15 | time of the last point that was written, u32, 0 if none since the start or the restart |
+
+It is notified when a recording starts or stops and after each point.
+
+### Recordings (0d)
+
+The list of all recordings on the card, in pages of up to 28 entries, so a page fits into one read with an MTU
+of 247. Write the u16 index of the first entry, then read. The index is 0 after connecting.
+
+| Bytes | Content |
+|---|---|
+| 0–1 | number of recordings on the card, u16 |
+| 2–3 | index of the first entry of this page, u16 |
+| 4… | entries of 8 bytes: id (u32), size in bytes (u32) |
+
+The order is the order of the folder on the card, not sorted. A page after the end has no entries. Reading
+fails with *Insufficient Resources* (0x11) when the SD card can not be read.
 
 ## Firmware update
 

@@ -50,10 +50,10 @@ const sentText = ({ time, position }) =>
       : null;
 
 // Talks to the IndiaNavi over Bluetooth: time and position for the GPS module, WiFi access point, what the display
-// shows and the firmware. The connection is the one that the app keeps in the background (auto_connect.js), it stays
+// shows, the track recording and the firmware. The connection is the one that the app keeps in the background (auto_connect.js), it stays
 // when the screen closes. device is the remembered { id, name } of the IndiaNavi. onTrackColorChange gets the color
 // of the track on the device, so the map of the app can show it the same way.
-export default function BluetoothScreen({ device, onDeviceChange, onTrackColorChange, onOpenWifi, onBack }) {
+export default function BluetoothScreen({ device, onDeviceChange, onTrackColorChange, onOpenWifi, onOpenRecordings, onBack }) {
   const [connection, setConnection] = useState(null);
   const [connecting, setConnecting] = useState(false);
   // devices found by the scan
@@ -517,6 +517,14 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                 </Hint>
               </>
             )}
+
+            <SectionTitle>Recording</SectionTitle>
+            <Button title="Recordings" icon="GPS" onPress={onOpenRecordings} disabled={locked} variant="secondary" compact />
+            <Hint>
+              {connection.info.recording
+                ? 'Start and stop a track recording on the IndiaNavi, download the recorded tracks and delete them.'
+                : 'The firmware of the IndiaNavi can not record tracks yet, update it below.'}
+            </Hint>
 
             <SectionTitle>Firmware</SectionTitle>
             {release && connection.info.ota && (

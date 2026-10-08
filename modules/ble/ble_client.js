@@ -8,14 +8,21 @@ import { updateFirmwareOverBle } from './firmware_update.js';
 import {
   API_VERSION,
   CHARACTERISTICS,
+  RECORD_CMD_START,
+  RECORD_CMD_STOP,
   SERVICE_UUID,
   decodeInfo,
   decodeOtaStatus,
   decodePositionOut,
+  decodeRecordingStatus,
+  decodeRecordings,
   decodeSettings,
   decodeWifiStatus,
   encodeForgetPhone,
   encodePositionIn,
+  encodeRecordingCommand,
+  encodeRecordingDelete,
+  encodeRecordingsSelect,
   encodeSettings,
   encodeTime,
   encodeWifiControl,
@@ -290,6 +297,44 @@ export class IndiaNaviConnection {
   // The device forgets this phone and lets the next phone pair. The connection ends.
   forgetPhone() {
     return this.write(CHARACTERISTICS.deviceControl, encodeForgetPhone());
+  }
+
+  // { recording, id, size, lastPoint } of the running recording, only if info.recording is set
+  async readRecordingStatus() {
+    return decodeRecordingStatus(await this.read(CHARACTERISTICS.recording));
+  }
+
+  // listener gets the status when a recording starts or stops and after each point
+  onRecordingStatus(listener) {
+    return this.monitor(CHARACTERISTICS.recording, (bytes) => listener(decodeRecordingStatus(bytes)));
+  }
+
+  // The device refuses a start while a recording runs or before its clock is set, so the time goes first
+  async startRecording() {
+    await this.syncTime();
+    return this.write(CHARACTERISTICS.recording, encodeRecordingCommand(RECORD_CMD_START));
+  }
+
+  stopRecording() {
+    return this.write(CHARACTERISTICS.recording, encodeRecordingCommand(RECORD_CMD_STOP));
+  }
+
+  deleteRecording(id) {
+    return this.write(CHARACTERISTICS.recording, encodeRecordingDelete(id));
+  }
+
+  // All recordings on the SD card, [{ id, size }], read page by page
+  async listRecordings() {
+    const recordings = [];
+    for (let first = 0; ; ) {
+      await this.write(CHARACTERISTICS.recordings, encodeRecordingsSelect(first));
+      const page = decodeRecordings(await this.read(CHARACTERISTICS.recordings));
+      recordings.push(...page.entries);
+      first += page.entries.length;
+      if (page.entries.length === 0 || first >= page.total) {
+        return recordings;
+      }
+    }
   }
 
   // one subscription of the update status shared by everything that listens

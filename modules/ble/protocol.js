@@ -21,6 +21,8 @@ export const CHARACTERISTICS = {
   otaControl: uuid(9),
   otaData: uuid(10),
   deviceControl: uuid(11),
+  recording: uuid(12),
+  recordings: uuid(13),
 };
 
 // ---- Base64, the Bluetooth library exchanges values as base64 text ----
@@ -76,7 +78,8 @@ const check = (bytes, length, what) => {
 
 export const INFO_HEADER_SIZE = 4;
 
-// { api, ota, charging, trackColor (the settings carry the track color), battery (percent), firmware }
+// { api, ota, charging, trackColor (the settings carry the track color), recording (tracks can be recorded),
+//   battery (percent), firmware }
 export const decodeInfo = (bytes) => {
   if (bytes.length < INFO_HEADER_SIZE) {
     throw new Error('Device info is too short');
@@ -86,6 +89,7 @@ export const decodeInfo = (bytes) => {
     ota: (bytes[1] & 0x01) !== 0,
     charging: (bytes[1] & 0x02) !== 0,
     trackColor: (bytes[1] & 0x04) !== 0,
+    recording: (bytes[1] & 0x08) !== 0,
     battery: bytes[2],
     firmware: new TextDecoder().decode(bytes.subarray(INFO_HEADER_SIZE)),
   };
@@ -239,6 +243,65 @@ export const decodeSettings = (bytes) => {
 
 // The device forgets the phone that is paired, the next phone can pair
 export const encodeForgetPhone = () => Uint8Array.of(0x01);
+
+// ---- Track recording ----
+
+// A recording is TRACKS/XXXXXXXX.GPX on the SD card, its id is the start time in seconds, the name is the id in hex
+
+export const RECORD_CMD_START = 0x01;
+export const RECORD_CMD_STOP = 0x02;
+export const RECORD_CMD_DELETE = 0x03;
+
+export const RECORDING_STATUS_SIZE = 16;
+export const RECORDINGS_HEADER_SIZE = 4;
+export const RECORDINGS_ENTRY_SIZE = 8;
+export const RECORDINGS_PAGE_SIZE = 28;
+
+export const encodeRecordingCommand = (command) => Uint8Array.of(command);
+
+export const encodeRecordingDelete = (id) => {
+  if (!Number.isInteger(id) || id <= 0 || id > 0xffffffff) {
+    throw new Error('Not a recording');
+  }
+  const bytes = new Uint8Array(5);
+  bytes[0] = RECORD_CMD_DELETE;
+  view(bytes).setUint32(1, id, true);
+  return bytes;
+};
+
+// { recording, id (0 if none), size (bytes), lastPoint (seconds, 0 if none yet) }
+export const decodeRecordingStatus = (bytes) => {
+  check(bytes, RECORDING_STATUS_SIZE, 'Recording status');
+  const data = view(bytes);
+  return {
+    recording: bytes[0] === 1,
+    id: data.getUint32(4, true),
+    size: data.getUint32(8, true),
+    lastPoint: data.getUint32(12, true),
+  };
+};
+
+export const encodeRecordingsSelect = (first) => {
+  const bytes = new Uint8Array(2);
+  view(bytes).setUint16(0, first, true);
+  return bytes;
+};
+
+// One page of the list: { total, first, entries: [{ id, size }] }
+export const decodeRecordings = (bytes) => {
+  if (bytes.length < RECORDINGS_HEADER_SIZE || (bytes.length - RECORDINGS_HEADER_SIZE) % RECORDINGS_ENTRY_SIZE !== 0) {
+    throw new Error(`The list of recordings has ${bytes.length} bytes`);
+  }
+  const data = view(bytes);
+  const entries = [];
+  for (let offset = RECORDINGS_HEADER_SIZE; offset < bytes.length; offset += RECORDINGS_ENTRY_SIZE) {
+    entries.push({ id: data.getUint32(offset, true), size: data.getUint32(offset + 4, true) });
+  }
+  return { total: data.getUint16(0, true), first: data.getUint16(2, true), entries };
+};
+
+// Path of the file on the SD card, for the download over WiFi
+export const recordingPath = (id) => `TRACKS/${id.toString(16).padStart(8, '0')}.gpx`;
 
 // ---- Firmware update ----
 

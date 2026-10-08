@@ -80,7 +80,8 @@ as `indianavi.local` or by its address in that network.
 - The server has to support keep-alive. The app sends more than a thousand requests,
   so a new connection per file would be too slow.
 - The app uses at most 2 connections at the same time.
-- Request and response bodies are never chunked. Every `PUT` has a `Content-Length`.
+- Request and response bodies are never chunked, except the download of a recorded track. Every `PUT` has a
+  `Content-Length`.
 
 ## Endpoints
 
@@ -88,6 +89,7 @@ as `indianavi.local` or by its address in that network.
 |---|---|---|
 | `GET /api/info` | find the device, check free space | yes |
 | `GET /sd/{dir}/` | list a folder, to skip files that are already there | yes |
+| `GET /sd/TRACKS/{id}.gpx` | download a recorded track | optional |
 | `PUT /sd/{path}` | write one file | yes |
 | `DELETE /sd/{path}` | delete one file | optional |
 | `POST /api/reload` | reload `track.gpx` and the map | optional |
@@ -176,7 +178,21 @@ Rules:
 5. **Answer after the write.** The `204` is sent after the file is closed and
    renamed, not when the body was received.
 
-### DELETE /sd/{path} (optional)
+### GET /sd/TRACKS/{id}.gpx (optional)
+
+Downloads a recorded track, `{id}` is the id of the recording as 8 hex digits, for example
+`/sd/TRACKS/6704a1b0.gpx`. Recordings are started, stopped, listed and deleted over Bluetooth, see the track
+recording in `ble_api.md`. `GET /sd/TRACKS/` lists them as well.
+
+Response `200`, `Content-Type: application/gpx+xml`, the body is chunked (the device reads the file while it sends
+it).
+
+| Status | Meaning |
+|---|---|
+| `401` | the request did not come in over the access point and has no `Authorization: Bearer <password of the access point>`. A track tells where somebody was |
+| `404` | no such recording |
+| `409` | the track is still recorded, stop the recording first |
+
 
 Deletes one file. The same paths as for `PUT` are allowed.
 

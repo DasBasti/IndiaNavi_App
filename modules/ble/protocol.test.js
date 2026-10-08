@@ -6,12 +6,16 @@ import {
   SERVICE_UUID,
   OTA_ERROR,
   OTA_STATE,
+  RECORD_CMD_START,
+  RECORD_CMD_STOP,
   TIME_MIN,
   TRACK_COLOR_DEFAULT,
   clampUpdateInterval,
   decodeInfo,
   decodeOtaStatus,
   decodePositionOut,
+  decodeRecordingStatus,
+  decodeRecordings,
   decodeSettings,
   decodeTime,
   decodeWifiStatus,
@@ -20,12 +24,16 @@ import {
   encodeOtaCommand,
   encodeOtaStart,
   encodePositionIn,
+  encodeRecordingCommand,
+  encodeRecordingDelete,
+  encodeRecordingsSelect,
   encodeSettings,
   encodeTime,
   encodeWifiControl,
   formatInterval,
   fromBase64,
   otaChunkSize,
+  recordingPath,
   toBase64,
 } from './protocol.js';
 
@@ -55,8 +63,9 @@ test('base64 round trip with all byte values', () => {
 
 test('info has version, flags, battery and firmware', () => {
   const info = decodeInfo(Uint8Array.from([1, 3, 80, 0, ...new TextEncoder().encode('abc1234')]));
-  assert.deepEqual(info, { api: 1, ota: true, charging: true, trackColor: false, battery: 80, firmware: 'abc1234' });
+  assert.deepEqual(info, { api: 1, ota: true, charging: true, trackColor: false, recording: false, battery: 80, firmware: 'abc1234' });
   assert.equal(decodeInfo(bytes(1, 4, 5, 0)).trackColor, true);
+  assert.equal(decodeInfo(bytes(1, 8, 5, 0)).recording, true);
   assert.equal(decodeInfo(bytes(1, 0, 5, 0)).ota, false);
   assert.throws(() => decodeInfo(bytes(1, 0)), /too short/);
 });
@@ -172,6 +181,36 @@ test('update interval is 30 s to 10 min', () => {
 
 test('forget phone is one command byte', () => {
   assert.deepEqual(encodeForgetPhone(), bytes(1));
+});
+
+test('recording commands like the firmware decodes them', () => {
+  assert.deepEqual(encodeRecordingCommand(RECORD_CMD_START), bytes(1));
+  assert.deepEqual(encodeRecordingCommand(RECORD_CMD_STOP), bytes(2));
+  assert.deepEqual(encodeRecordingDelete(0x12345678), bytes(3, 0x78, 0x56, 0x34, 0x12));
+  assert.throws(() => encodeRecordingDelete(0), /Not a recording/);
+  assert.deepEqual(encodeRecordingsSelect(28), bytes(28, 0));
+});
+
+test('recording status has the layout of the firmware test', () => {
+  const status = bytes(1, 0, 0, 0, 0xb0, 0xa1, 0x04, 0x67, 0x03, 0x02, 0x01, 0x00, 0xff, 0xa1, 0x04, 0x67);
+  assert.deepEqual(decodeRecordingStatus(status), { recording: true, id: 0x6704a1b0, size: 0x00010203, lastPoint: 0x6704a1ff });
+  assert.throws(() => decodeRecordingStatus(bytes(1, 0)), /expected 16/);
+});
+
+test('a page of recordings', () => {
+  const page = bytes(30, 0, 28, 0, 0x44, 0x33, 0x22, 0x11, 0xe8, 0x03, 0, 0, 0x88, 0x77, 0x66, 0x55, 0x70, 0x11, 0x01, 0);
+  assert.deepEqual(decodeRecordings(page), {
+    total: 30,
+    first: 28,
+    entries: [{ id: 0x11223344, size: 1000 }, { id: 0x55667788, size: 70000 }],
+  });
+  assert.deepEqual(decodeRecordings(bytes(0, 0, 0, 0)), { total: 0, first: 0, entries: [] });
+  assert.throws(() => decodeRecordings(bytes(1, 0, 0, 0, 1)), /5 bytes/);
+});
+
+test('recording path is the id in hex', () => {
+  assert.equal(recordingPath(0x6704a1b0), 'TRACKS/6704a1b0.gpx');
+  assert.equal(recordingPath(0x1234), 'TRACKS/00001234.gpx');
 });
 
 test('firmware update commands', () => {

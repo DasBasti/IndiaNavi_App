@@ -1,6 +1,7 @@
 import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 
+import { recordingPath } from "./ble/protocol";
 import { checkFirmwareImage } from "./firmware_release";
 import { TRACK_PATH } from "./sd_card";
 
@@ -240,6 +241,25 @@ export const transferToDevice = async (base, files, { signal, onProgress, replac
 
     return { uploaded: upload.length, skipped: tiles.length - missing.length, bytes: bytesTotal };
 
+}
+
+// Downloads a recorded track and returns the GPX text. Outside of the access point of the IndiaNavi the device wants its
+// password as token.
+export const downloadRecording = async (base, id, { signal, token } = {}) => {
+    const response = await request(base, "GET", `/sd/${recordingPath(id)}`, {
+        signal,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (response.status === 409) {
+        throw new Error("The track is still recorded, stop the recording first");
+    }
+    if (response.status === 404) {
+        throw new Error("The track is not on the SD card any more");
+    }
+    if (response.status !== 200) {
+        throw httpError("Download", response);
+    }
+    return response.text;
 }
 
 // Reads a firmware image (.bin of the IndiaNavi firmware) from a picked file
