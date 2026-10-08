@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 
 import Button from './Button';
-import { Hint, Input, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
+import { BusyWindow, Hint, Input, Message, ProgressWindow, ScreenHeader, SectionTitle } from './ui';
 import { colors } from '../theme';
 import {
   ACCESS_POINT_ADDRESS,
@@ -266,6 +266,15 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
   return (
     <View style={styles.screen}>
       {(progress || firmware === 'sending') && <KeepAwake />}
+      <ProgressWindow
+        visible={progress !== null}
+        text={progress?.phase === 'check' ? 'Checking the tiles' : 'Sending the files'}
+        done={progress?.done ?? 0}
+        total={progress?.total ?? 0}
+        detail={progress && progressText(progress)}
+        onCancel={() => abort.current?.abort()}
+      />
+      <BusyWindow text={firmware === 'sending' ? 'Updating the firmware…' : null} />
       <ScreenHeader title="IndiaNavi" icon={connection ? 'WIFI_3' : connecting ? 'WIFI_1' : 'WIFI_0'} onBack={onBack} disabled={busy} />
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -365,24 +374,14 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
         {connection && (
           <>
             <SectionTitle>Files</SectionTitle>
-            {progress ? (
-              <>
-                <ProgressBar done={progress.done} total={progress.total} />
-                <Text style={styles.text}>{progressText(progress)}</Text>
-                <Button title="Cancel" onPress={() => abort.current?.abort()} variant="danger" />
-              </>
-            ) : (
-              <>
-                {files && <Button title="Send to IndiaNavi" icon="SD" onPress={() => transfer()} />}
-                <Button
-                  title="Update all tiles on the IndiaNavi"
-                  icon="SD"
-                  onPress={() => transfer({ allTiles: true })}
-                  disabled={busy || storedTiles === 0}
-                  variant="secondary"
-                />
-              </>
-            )}
+            {files && <Button title="Send to IndiaNavi" icon="SD" onPress={() => transfer()} disabled={busy} />}
+            <Button
+              title="Update all tiles on the IndiaNavi"
+              icon="SD"
+              onPress={() => transfer({ allTiles: true })}
+              disabled={busy || storedTiles === 0}
+              variant="secondary"
+            />
             <Hint>
               {files && 'Send to IndiaNavi skips the tiles that are already on the SD card. '}
               Update all tiles sends all {storedTiles} tiles on the phone again, for example after the filter was
@@ -396,7 +395,7 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
           <>
             <SectionTitle>Firmware</SectionTitle>
             <Button
-              title={firmware === 'sending' ? 'Updating…' : 'Update firmware'}
+              title="Update firmware"
               onPress={update}
               disabled={busy}
               variant="secondary"

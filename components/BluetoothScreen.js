@@ -5,7 +5,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 
 import BluetoothIcon from './BluetoothIcon';
 import Button from './Button';
-import { BusyWindow, Card, Hint, Message, ProgressBar, ScreenHeader, SectionTitle } from './ui';
+import { BusyWindow, Card, Hint, Message, ProgressWindow, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
 import { downloadRelease, fetchLatestRelease, isNewer } from '../modules/firmware_release';
@@ -349,6 +349,14 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     <View style={styles.screen}>
       {update && <KeepAwake />}
       <BusyWindow text={busy} />
+      <ProgressWindow
+        visible={update !== null}
+        text="Updating the firmware"
+        done={update?.done ?? 0}
+        total={update?.total ?? 0}
+        detail={update && updatePhaseText(update)}
+        onCancel={() => updateAbort.current?.abort()}
+      />
       <ScreenHeader title="Bluetooth" onBack={onBack} disabled={locked} />
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -511,39 +519,29 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
             )}
 
             <SectionTitle>Firmware</SectionTitle>
-            {update ? (
-              <>
-                <ProgressBar done={update.done} total={update.total} />
-                <Text style={styles.small}>{updatePhaseText(update)}</Text>
-                <Button title="Cancel" onPress={() => updateAbort.current?.abort()} variant="danger" compact />
-              </>
-            ) : (
-              <>
-                {release && connection.info.ota && (
-                  newer === false ? (
-                    <Text style={styles.small}>The firmware is up to date, {release.tag} is the newest release.</Text>
-                  ) : (
-                    <>
-                      {newer && (
-                        <Message tone="yellow">Firmware {release.tag} is available on GitHub.</Message>
-                      )}
-                      <Button
-                        title={`Install ${release.tag}`}
-                        onPress={installRelease}
-                        disabled={locked}
-                        variant={newer ? 'primary' : 'secondary'}
-                      />
-                    </>
-                  )
-                )}
-                <Button title="Update from a file" onPress={updateFromFile} disabled={locked || !connection.info.ota} variant="plain" />
-                <Hint>
-                  The newest firmware comes from the releases on GitHub, or pick a firmware file (firmware.bin). The update
-                  takes a few minutes, stay close to the IndiaNavi and keep the app open. The old firmware stays if anything
-                  goes wrong. The display shows the progress.
-                </Hint>
-              </>
+            {release && connection.info.ota && (
+              newer === false ? (
+                <Text style={styles.small}>The firmware is up to date, {release.tag} is the newest release.</Text>
+              ) : (
+                <>
+                  {newer && (
+                    <Message tone="yellow">Firmware {release.tag} is available on GitHub.</Message>
+                  )}
+                  <Button
+                    title={`Install ${release.tag}`}
+                    onPress={installRelease}
+                    disabled={locked}
+                    variant={newer ? 'primary' : 'secondary'}
+                  />
+                </>
+              )
             )}
+            <Button title="Update from a file" onPress={updateFromFile} disabled={locked || !connection.info.ota} variant="plain" />
+            <Hint>
+              The newest firmware comes from the releases on GitHub, or pick a firmware file (firmware.bin). The update
+              takes a few minutes, stay close to the IndiaNavi and keep the app open. The old firmware stays if anything
+              goes wrong. The display shows the progress.
+            </Hint>
 
             <SectionTitle>Phone</SectionTitle>
             <Button title="Pair another phone" onPress={forget} disabled={locked} variant="danger" compact />
