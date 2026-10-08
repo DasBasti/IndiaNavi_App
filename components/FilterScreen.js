@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import Button from './Button';
+import TileServerSetting from './TileServerSetting';
 import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
 import { DEFAULT_FILTER, DISPLAY_COLORS, SHARE_STEPS, convertPixels, findFilterEntry } from '../modules/map_color';
@@ -105,8 +106,8 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
   </View>
 );
 
-// Shows a tile of the map next to its converted version and lets the user change the filter
-export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApply, onBack }) {
+// Shows a tile of the map next to its converted version and lets the user change the filter and the tile server
+export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApply, onTileUrlChange, onBack }) {
   const { width: windowWidth } = useWindowDimensions();
   const imageSize = Math.floor((windowWidth - 2 * PADDING - GAP) / 2);
 
@@ -203,6 +204,8 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
       <ScreenHeader title="Conversion filter" onBack={onBack} />
 
       <ScrollView contentContainerStyle={styles.content}>
+        <TileServerSetting url={tileUrlTemplate} onChange={onTileUrlChange} />
+
         <View style={styles.row}>
           {ZOOM_LEVELS.map((zoom) => (
             <Button

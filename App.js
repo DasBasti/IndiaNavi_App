@@ -12,7 +12,6 @@ import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
 import MapSearch from './components/MapSearch';
 import MapView, { areaColor } from './components/MapView';
-import TileServerSetting from './components/TileServerSetting';
 import { Badge, Card, Hint, Message, PaletteStrip, ProgressBar } from './components/ui';
 
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
@@ -324,6 +323,7 @@ export default function App() {
             tileUrlTemplate={tileUrlTemplate}
             startTile={previewTile()}
             onApply={changeFilter}
+            onTileUrlChange={changeTileUrl}
             onBack={() => setScreen('main')}
           />
         ) : screen === 'bluetooth' ? (
@@ -363,8 +363,6 @@ export default function App() {
                 <BluetoothIcon />
               </NavTile>
             </View>
-
-            <TileServerSetting url={tileUrlTemplate} onChange={changeTileUrl} disabled={loading} />
 
             {error && <Message tone="red" icon="noSD">{error}</Message>}
 
