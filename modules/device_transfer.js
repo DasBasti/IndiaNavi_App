@@ -2,6 +2,7 @@ import { fetch } from "expo/fetch";
 import { File } from "expo-file-system";
 
 import { checkFirmwareImage } from "./firmware_release";
+import { TRACK_PATH } from "./sd_card";
 
 // Address of the IndiaNavi in its own access point
 export const ACCESS_POINT_ADDRESS = "192.168.4.1";
@@ -126,6 +127,14 @@ const putFile = async (base, file, signal) => {
 
 }
 
+// Deletes a file of the SD card, a file that is not there is fine
+const deleteFile = async (base, path, signal) => {
+    const response = await request(base, "DELETE", `/sd/${path}`, { signal });
+    if (response.status !== 204 && response.status !== 404) {
+        throw httpError(`Delete ${path}`, response);
+    }
+}
+
 // Runs task for all items with a few requests at the same time
 const runParallel = async (items, task, signal) => {
     let next = 0;
@@ -144,7 +153,8 @@ const folderOf = (path) => path.slice(0, path.lastIndexOf("/"));
 const nameOf = (path) => path.slice(path.lastIndexOf("/") + 1).toLowerCase();
 
 // Copies the files ({ path, uri, size }, paths relative to the SD card) to the device.
-// Tiles that are already on the card are skipped, track.gpx is sent last and always.
+// Tiles that are already on the card are skipped, track.gpx is sent last and always. Without track.gpx in the files the
+// old track is deleted from the card.
 // onProgress gets { phase: "check" | "upload" | "finish", done, total, bytesDone, bytesTotal }.
 // Returns { uploaded, skipped, bytes }.
 export const transferToDevice = async (base, files, { signal, onProgress } = {}) => {
@@ -174,14 +184,17 @@ export const transferToDevice = async (base, files, { signal, onProgress } = {})
         throw new Error(`Not enough space on the SD card of the IndiaNavi: ${bytesTotal} bytes needed, ${info.sd.free} free`);
     }
 
-    // the device shows the progress on its display
-    const announced = await request(base, "POST", "/api/transfer", {
-        body: JSON.stringify({ files: upload.length, bytes: bytesTotal }),
-        headers: { "Content-Type": "application/json" },
-        signal,
-    });
-    if (announced.status !== 200) {
-        throw httpError("Transfer", announced);
+    // the device shows the progress on its display. Without a track and with all tiles on the card nothing is sent,
+    // the device does not accept an announcement of 0 files.
+    if (upload.length > 0) {
+        const announced = await request(base, "POST", "/api/transfer", {
+            body: JSON.stringify({ files: upload.length, bytes: bytesTotal }),
+            headers: { "Content-Type": "application/json" },
+            signal,
+        });
+        if (announced.status !== 200) {
+            throw httpError("Transfer", announced);
+        }
     }
 
     let done = 0;
@@ -202,6 +215,9 @@ export const transferToDevice = async (base, files, { signal, onProgress } = {})
         for (const file of track) {
             await putFile(base, file, signal);
             uploaded(file);
+        }
+        if (track.length === 0) {
+            await deleteFile(base, TRACK_PATH, signal);
         }
     } catch (error) {
         if (signal?.aborted) {
