@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import Button from './Button';
 import { Input } from './ui';
@@ -15,6 +15,7 @@ export default function MapSearch({ onSelect }) {
   const abort = useRef(null);
 
   const search = async () => {
+    Keyboard.dismiss();
     const text = query.trim();
     if (text === '') {
       return;
