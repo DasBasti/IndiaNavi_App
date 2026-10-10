@@ -1,6 +1,7 @@
 package app.wandernavi
 import expo.modules.splashscreen.SplashScreenManager
 
+import android.content.pm.ActivityInfo
 import android.os.Build
 import android.os.Bundle
 
@@ -20,6 +21,10 @@ class MainActivity : ReactActivity() {
     // @generated begin expo-splashscreen - expo prebuild (DO NOT MODIFY) sync-f3ff59a738c56c9a6119210cb55f0b613eb8b6af
     SplashScreenManager.registerOnActivity(this)
     // @generated end expo-splashscreen
+    // phones stay in portrait, tablets also turn to landscape and show the map next to the controls
+    if (resources.configuration.smallestScreenWidthDp < 600) {
+      requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
     super.onCreate(null)
   }
 

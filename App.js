@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { AppState, BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppState, BackHandler, Linking, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import BluetoothIcon from './components/BluetoothIcon';
@@ -66,6 +66,9 @@ const selectedTrack = (id) => {
     return null;
   }
 };
+
+// Tablets in landscape show the map on the left and the controls on the right
+const SIDE_BY_SIDE_WIDTH = 720;
 
 // Tile of the main navigation: icon with a label below
 const NavTile = ({ label, children, onPress, disabled }) => (
@@ -337,6 +340,117 @@ export default function App() {
 
   const loading = progress !== null;
 
+  const { width, height } = useWindowDimensions();
+  const sideBySide = width > height && width >= SIDE_BY_SIDE_WIDTH;
+
+  const mainTop = (
+    <>
+      <View style={styles.header}>
+        <Icon name="norden" size={40} />
+        <Text style={styles.title}>Wander Navi</Text>
+      </View>
+
+      <View style={styles.nav}>
+        <NavTile label="Tracks" onPress={() => setScreen('tracks')} disabled={loading}>
+          <Icon name="path" size={32} />
+        </NavTile>
+        <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
+          <PaletteStrip size={8} />
+        </NavTile>
+        <NavTile label="Device" onPress={() => {
+          setAutoTransfer(false);
+          setScreen('transfer');
+        }} disabled={loading}>
+          <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
+        </NavTile>
+        <NavTile label="Bluetooth" onPress={() => setScreen('bluetooth')} disabled={loading}>
+          <BluetoothIcon />
+        </NavTile>
+      </View>
+
+      {error && <Message tone="red" icon="noSD">{error}</Message>}
+
+      {track && (
+        <View style={styles.trackName}>
+          <Icon name="path" size={32} />
+          <Text style={styles.name} numberOfLines={1}>{track.name}</Text>
+          {track.id === settings.deviceTrackId && <Badge color={colors.blue}>on the IndiaNavi</Badge>}
+          <Button title="×" onPress={() => showTrack(null)} disabled={loading} variant="plain" compact />
+        </View>
+      )}
+    </>
+  );
+
+  const mainMap = (
+    <View style={styles.map}>
+      <MapView
+        view={view}
+        onViewChange={changeView}
+        lines={track?.lines}
+        bounds={track?.bounds}
+        fitKey={track?.id}
+        margin={margin}
+        tileUrlTemplate={tileUrlTemplate}
+        trackColor={trackColor}
+      />
+      {!track && <MapSearch onSelect={searchResult} />}
+    </View>
+  );
+
+  const mainBottom = (
+    <>
+      {!track && (
+        <Hint>Move the map to put the cross where you need tiles, or open a GPX track.</Hint>
+      )}
+
+      <View style={styles.legends}>
+        {ZOOM_LEVELS.map((zoom, index) => (
+          <View key={zoom} style={styles.legend}>
+            <View style={[styles.legendFrame, { borderColor: areaColor(index) }]} />
+            <Text style={styles.small}>
+              Zoom {zoom}: {countTiles(bounds, margin, zoom)} tiles, margin {zoomMargin(margin, zoom)}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <Card style={styles.summary}>
+        <Icon name="SD" size={32} />
+        <Text style={styles.summaryText}>
+          {tiles.length} tiles from {tileServerName(tileUrlTemplate)}
+          {'\n'}{megabytes(tiles.length * RAW_TILE_BYTES)} on the SD card
+        </Text>
+      </Card>
+
+      <View style={styles.row}>
+        <Text style={styles.marginText}>Margin: {margin} tiles</Text>
+        <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
+        <Button title="+" onPress={() => changeMargin(1)} disabled={loading} variant="plain" compact />
+      </View>
+
+      <Button
+        title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
+        icon="SD"
+        onPress={prepare}
+        disabled={loading}
+      />
+
+      {prepared && (
+        <Message tone={prepared.failed ? 'red' : 'green'} icon={prepared.failed ? 'noSD' : 'SD'}>
+          {prepared.failed
+            ? `${prepared.failed} tiles could not be loaded (${prepared.reason}).`
+            : `${prepared.files.length} files (${megabytes(prepared.bytes)}) are ready for the transfer to the IndiaNavi.`}
+        </Message>
+      )}
+      {prepared && !loading && (
+        <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => {
+          setAutoTransfer(true);
+          setScreen('transfer');
+        }} />
+      )}
+    </>
+  );
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
@@ -399,105 +513,21 @@ export default function App() {
             onBack={() => setScreen('main')}
           />
         ) : (
-          <>
-            <View style={styles.header}>
-              <Icon name="norden" size={40} />
-              <Text style={styles.title}>Wander Navi</Text>
+          sideBySide ? (
+            <View style={styles.sideBySide}>
+              {mainMap}
+              <ScrollView style={styles.controls} contentContainerStyle={styles.controlsContent} keyboardShouldPersistTaps="handled">
+                {mainTop}
+                {mainBottom}
+              </ScrollView>
             </View>
-
-            <View style={styles.nav}>
-              <NavTile label="Tracks" onPress={() => setScreen('tracks')} disabled={loading}>
-                <Icon name="path" size={32} />
-              </NavTile>
-              <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
-                <PaletteStrip size={8} />
-              </NavTile>
-              <NavTile label="Device" onPress={() => {
-                setAutoTransfer(false);
-                setScreen('transfer');
-              }} disabled={loading}>
-                <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
-              </NavTile>
-              <NavTile label="Bluetooth" onPress={() => setScreen('bluetooth')} disabled={loading}>
-                <BluetoothIcon />
-              </NavTile>
-            </View>
-
-            {error && <Message tone="red" icon="noSD">{error}</Message>}
-
-            {track && (
-              <View style={styles.trackName}>
-                <Icon name="path" size={32} />
-                <Text style={styles.name} numberOfLines={1}>{track.name}</Text>
-                {track.id === settings.deviceTrackId && <Badge color={colors.blue}>on the IndiaNavi</Badge>}
-                <Button title="×" onPress={() => showTrack(null)} disabled={loading} variant="plain" compact />
-              </View>
-            )}
-
-            <View style={styles.map}>
-              <MapView
-                view={view}
-                onViewChange={changeView}
-                lines={track?.lines}
-                bounds={track?.bounds}
-                fitKey={track?.id}
-                margin={margin}
-                tileUrlTemplate={tileUrlTemplate}
-                trackColor={trackColor}
-              />
-              {!track && <MapSearch onSelect={searchResult} />}
-            </View>
-
-            {!track && (
-              <Hint>Move the map to put the cross where you need tiles, or open a GPX track.</Hint>
-            )}
-
-            <View style={styles.legends}>
-              {ZOOM_LEVELS.map((zoom, index) => (
-                <View key={zoom} style={styles.legend}>
-                  <View style={[styles.legendFrame, { borderColor: areaColor(index) }]} />
-                  <Text style={styles.small}>
-                    Zoom {zoom}: {countTiles(bounds, margin, zoom)} tiles, margin {zoomMargin(margin, zoom)}
-                  </Text>
-                </View>
-              ))}
-            </View>
-
-            <Card style={styles.summary}>
-              <Icon name="SD" size={32} />
-              <Text style={styles.summaryText}>
-                {tiles.length} tiles from {tileServerName(tileUrlTemplate)}
-                {'\n'}{megabytes(tiles.length * RAW_TILE_BYTES)} on the SD card
-              </Text>
-            </Card>
-
-            <View style={styles.row}>
-              <Text style={styles.marginText}>Margin: {margin} tiles</Text>
-              <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
-              <Button title="+" onPress={() => changeMargin(1)} disabled={loading} variant="plain" compact />
-            </View>
-
-            <Button
-              title={prepared?.failed ? 'Retry failed tiles' : 'Prepare SD card files'}
-              icon="SD"
-              onPress={prepare}
-              disabled={loading}
-            />
-
-            {prepared && (
-              <Message tone={prepared.failed ? 'red' : 'green'} icon={prepared.failed ? 'noSD' : 'SD'}>
-                {prepared.failed
-                  ? `${prepared.failed} tiles could not be loaded (${prepared.reason}).`
-                  : `${prepared.files.length} files (${megabytes(prepared.bytes)}) are ready for the transfer to the IndiaNavi.`}
-              </Message>
-            )}
-            {prepared && !loading && (
-              <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => {
-                setAutoTransfer(true);
-                setScreen('transfer');
-              }} />
-            )}
-          </>
+          ) : (
+            <>
+              {mainTop}
+              {mainMap}
+              {mainBottom}
+            </>
+          )
         )}
 
         <StatusBar style="auto" />
@@ -575,6 +605,18 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
     color: colors.ink,
+  },
+  sideBySide: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: PAGE_PADDING,
+  },
+  controls: {
+    width: '40%',
+    maxWidth: 440,
+  },
+  controlsContent: {
+    gap: 12,
   },
   map: {
     flex: 1,
