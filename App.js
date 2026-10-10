@@ -17,7 +17,7 @@ import { Badge, Card, Hint, Message, PaletteStrip, ProgressWindow } from './comp
 
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
-import { DEFAULT_FILTER } from './modules/map_color';
+import { DEFAULT_FILTER, isFilter } from './modules/map_color';
 import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
 import { autoConnect } from './modules/ble/background';
 import { getPhonePosition } from './modules/ble/phone_position';
@@ -37,11 +37,6 @@ const DEFAULT_VIEW = { lon: 7.765, lat: 49.143, zoom: 13 };
 
 const isView = (view) =>
   [view?.lon, view?.lat, view?.zoom].every(Number.isFinite);
-
-const isFilter = (filter) =>
-  Array.isArray(filter) && filter.length > 0 &&
-  filter.every(({ rgb, colors, share }) => Array.isArray(rgb) && rgb.length === 3 && Array.isArray(colors) && colors.length > 0 &&
-    (share === undefined || (share >= 0 && share <= 1)));
 
 // Reads the lines of a GPX file, returns { lines, bounds }
 const readLines = (name, text) => {

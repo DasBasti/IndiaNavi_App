@@ -100,6 +100,17 @@ export const DEFAULT_FILTER = [
     { rgb: [0xfb, 0xd4, 0x9d], colors: [WHITE, RED], share: 1 / 4 },
 ];
 
+const isByte = (value) => Number.isInteger(value) && value >= 0 && value <= 255;
+const isDisplayColor = (value) => Number.isInteger(value) && value >= 0 && value < DISPLAY_COLORS.length;
+
+// Checks that a filter loaded from a file has entries the conversion can use
+export const isFilter = (filter) =>
+    Array.isArray(filter) && filter.length > 0 &&
+    filter.every((entry) =>
+        Array.isArray(entry?.rgb) && entry.rgb.length === 3 && entry.rgb.every(isByte) &&
+        Array.isArray(entry.colors) && entry.colors.length >= 1 && entry.colors.length <= 2 && entry.colors.every(isDisplayColor) &&
+        (entry.share === undefined || (Number.isFinite(entry.share) && entry.share >= 0 && entry.share <= 1)));
+
 // Steps of the dither pattern, the share of an entry is rounded to them
 export const SHARE_STEPS = 64;
 
