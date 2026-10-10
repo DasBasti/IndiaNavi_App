@@ -5,6 +5,7 @@ import Button from './Button';
 import TileServerSetting from './TileServerSetting';
 import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
+import { exportFilterSettings, importFilterSettings } from '../modules/filter_file';
 import { DEFAULT_FILTER, DISPLAY_COLORS, SHARE_STEPS, convertPixels, findFilterEntry } from '../modules/map_color';
 import { encodePalettePng, encodeRgbPng, pngDataUri } from '../modules/png';
 import { loadOriginal } from '../modules/tile_loader';
@@ -127,6 +128,8 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
   // both tiles are zoomed and moved together: scale and the position of the zoomed tile in the frame
   const [zoom, setZoom] = useState(NO_ZOOM);
   const [scrolling, setScrolling] = useState(true);
+  // result of the last export or import: { tone, text }
+  const [fileMessage, setFileMessage] = useState(null);
 
   useEffect(() => setDraft(filter), [filter]);
 
@@ -247,6 +250,36 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
     setEditing({ index: draft.length, slot: 0 });
   };
 
+  // the filter is exported as it is shown, also when it is not applied yet
+  const exportFilter = async () => {
+    try {
+      if (await exportFilterSettings(draft, tileUrlTemplate)) {
+        setFileMessage({ tone: 'green', text: 'Filter and tile server exported.' });
+      }
+    } catch (e) {
+      setFileMessage({ tone: 'red', text: `Could not export the filter: ${e.message}` });
+    }
+  };
+
+  // the tile server is changed right away, the filter is shown and used once it is applied
+  const importFilter = async () => {
+    try {
+      const imported = await importFilterSettings();
+      if (imported === null) {
+        return;
+      }
+      if (imported.tileUrl !== tileUrlTemplate) {
+        onTileUrlChange(imported.tileUrl);
+      }
+      setDraft(imported.filter);
+      setPicked(null);
+      setEditing(null);
+      setFileMessage({ tone: 'yellow', text: 'Filter imported. Apply uses it for all tiles.' });
+    } catch (e) {
+      setFileMessage({ tone: 'red', text: `Could not import the filter: ${e.message}` });
+    }
+  };
+
   const move = (dx, dy) => {
     const last = 2 ** tile.zoom - 1;
     setTile({
@@ -362,6 +395,15 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
         <Hint>
           Apply uses the filter for all tiles. Tiles already converted on the phone are deleted and loaded again.
         </Hint>
+        <View style={styles.row}>
+          <Button title="Export" onPress={exportFilter} variant="plain" compact />
+          <Button title="Import" onPress={importFilter} variant="plain" compact />
+        </View>
+        <Hint>
+          The export contains the filter and the tile server. Importing a different tile server deletes the tiles
+          already loaded on the phone.
+        </Hint>
+        {fileMessage && <Message tone={fileMessage.tone}>{fileMessage.text}</Message>}
 
         <SectionTitle>Filter entries</SectionTitle>
         <Hint>
