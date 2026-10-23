@@ -10,7 +10,7 @@ import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
 import { downloadRelease, fetchLatestRelease, isNewer } from '../modules/firmware_release';
 import { DISPLAY_COLORS } from '../modules/map_color';
-import { isBleSupported, scanForDevices } from '../modules/ble/ble_client';
+import { isBleSupported, openBluetoothSettings, scanForDevices } from '../modules/ble/ble_client';
 import { autoConnect } from '../modules/ble/background';
 import { getPhonePosition } from '../modules/ble/phone_position';
 import { FIX_NAMES, UPDATE_INTERVAL_CHOICES, formatInterval } from '../modules/ble/protocol';
@@ -61,6 +61,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  // the last connect failed at the pairing, an old pairing in Android might be in the way
+  const [pairingFailed, setPairingFailed] = useState(false);
 
   const [wifi, setWifi] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -160,6 +162,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     setError(null);
     setNotice(null);
     setFound(null);
+    setPairingFailed(false);
     setConnecting(true);
     try {
       const connected = await autoConnect.connectNow(target);
@@ -168,6 +171,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     } catch (e) {
       autoConnect.disconnect();
       setError(`Could not connect: ${e.message}`);
+      setPairingFailed(e.pairing === true);
     } finally {
       setConnecting(false);
     }
@@ -196,6 +200,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   const scan = async () => {
     setError(null);
     setNotice(null);
+    setPairingFailed(false);
     setFound([]);
     setScanning(true);
     const controller = new AbortController();
@@ -366,6 +371,9 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
           </Message>
         )}
         {error && <Message tone="red" icon="noSD">{error}</Message>}
+        {error && pairingFailed && !connection && (
+          <Button title="Open the Bluetooth settings" onPress={openBluetoothSettings} variant="plain" compact />
+        )}
         {notice && <Message tone="green" icon="SD">{notice}</Message>}
 
         {!connection ? (

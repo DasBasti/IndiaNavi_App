@@ -34,13 +34,17 @@ Files (tiles and track) are still sent over WiFi, and recorded tracks are downlo
     paired phone and disconnects.
 
   A pairing outside of these times is refused without showing a code. A new pairing replaces the old one.
+- When the device forgot a phone (a new phone paired, or "pair another phone"), Android still keeps its old pairing
+  and tries the old key instead of asking for a code. The app then reports that the IndiaNavi did not accept the
+  phone and offers the Bluetooth settings of Android, where the old pairing is removed.
 - The WiFi password is **never** sent over Bluetooth. The WiFi access point can be switched on and off and its
   name is reported, but the phone has to read the password from the QR code on the display (as before).
 
 The app connects to the paired IndiaNavi by itself while it is open (`modules/ble/auto_connect.js`): it scans for
 the advertisement of the remembered device, connects as soon as it is seen, writes *Time* and *Position in*, and keeps
 the connection for the Bluetooth screen. It never opens a permission dialog in the background and gives up after
-five failed tries until the app comes back to the foreground.
+five failed tries until the app comes back to the foreground. After the user pressed *Disconnect* it stays
+disconnected until the next start of the app or the next connect, also when the app comes back to the foreground.
 
 Advertising: connectable, interval 500 to 600 ms, the 128 bit service UUID in the advertisement and the name
 `IndiaNavi-XXXX` (the same suffix as the WiFi access point) in the scan response.

@@ -1,7 +1,7 @@
 // Bluetooth LE connection to the IndiaNavi. The values are encoded in protocol.js, the firmware update is in
 // firmware_update.js. Needs a build of the app with native code, it does not work in Expo Go.
 
-import { PermissionsAndroid, Platform } from 'react-native';
+import { Linking, PermissionsAndroid, Platform } from 'react-native';
 import { BleManager } from 'react-native-ble-plx';
 
 import { updateFirmwareOverBle } from './firmware_update.js';
@@ -71,6 +71,12 @@ const requestAndroidPermissions = async () => {
     );
   }
 };
+
+// The pairings of Android, where an old pairing with the IndiaNavi can be removed
+export const openBluetoothSettings = () =>
+  Platform.OS === 'android'
+    ? Linking.sendIntent('android.settings.BLUETOOTH_SETTINGS').catch(() => Linking.openSettings())
+    : Linking.openSettings();
 
 // Asks for the permissions and for Bluetooth to be switched on
 export const prepareBluetooth = async () => {
@@ -164,6 +170,16 @@ export const waitForDevice = async (deviceId, { timeout = SCAN_TIMEOUT, signal }
   });
 };
 
+// The first read needs the pairing. It fails when the user cancels the code, the IndiaNavi refuses a new phone
+// or one side lost the key of the other: the IndiaNavi paired another phone or forgot this one, but Android still
+// has the old pairing and does not ask for a code again. error.pairing marks it for the screen.
+const pairingFailed = (message) => Object.assign(new Error(message), { pairing: true });
+
+const PAIRING_TOO_LONG = 'Pairing took too long. Switch the IndiaNavi off and on, then try again.';
+const PAIRING_REFUSED =
+  'The IndiaNavi did not accept this phone. If it was paired before, remove the IndiaNavi in the Bluetooth ' +
+  'settings of Android. A phone that is not paired can pair within two minutes after the IndiaNavi was switched on.';
+
 const withTimeout = (promise, ms, message) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), ms);
@@ -200,11 +216,14 @@ export class IndiaNaviConnection {
     try {
       await device.discoverAllServicesAndCharacteristics();
       const connection = new IndiaNaviConnection(device, null);
-      connection.info = await withTimeout(
-        connection.readInfo(),
+      const info = await withTimeout(
+        connection.read(CHARACTERISTICS.info),
         quiet ? BACKGROUND_PAIRING_TIMEOUT : PAIRING_TIMEOUT,
-        'Pairing took too long. Switch the IndiaNavi off and on, then try again.'
-      );
+        PAIRING_TOO_LONG
+      ).catch((error) => {
+        throw pairingFailed(error.message === PAIRING_TOO_LONG ? PAIRING_TOO_LONG : PAIRING_REFUSED);
+      });
+      connection.info = decodeInfo(info);
       if (connection.info.api !== API_VERSION) {
         throw new Error(`The IndiaNavi uses Bluetooth API ${connection.info.api}, the app uses ${API_VERSION}. Update the app or the firmware.`);
       }

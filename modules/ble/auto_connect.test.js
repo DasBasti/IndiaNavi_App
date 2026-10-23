@@ -161,6 +161,34 @@ test('connectNow connects to a device that is not remembered', async (t) => {
   assert.equal(env.connections.length, 1);
 });
 
+test('stays disconnected after disconnect, also when the app comes back', async (t) => {
+  const { auto, env } = setup(t);
+  auto.setDevice({ id: 'AA' });
+  await wait();
+  await auto.disconnect();
+  assert.equal(auto.getState().state, 'idle');
+  auto.setActive(false);
+  auto.setActive(true);
+  await wait(100);
+  assert.equal(env.connections.length, 1);
+  const connection = await auto.connectNow({ id: 'AA' });
+  assert.equal(env.connections.length, 2);
+  connection.onDisconnected();
+  await wait();
+  assert.equal(env.connections.length, 3);
+});
+
+test('a new device ends the hold of disconnect', async (t) => {
+  const { auto, env } = setup(t);
+  auto.setDevice({ id: 'AA' });
+  await wait();
+  await auto.disconnect();
+  auto.setDevice({ id: 'BB' });
+  await wait();
+  assert.equal(env.connections.length, 2);
+  assert.equal(env.connections[1].id, 'BB');
+});
+
 test('forgetting the device disconnects', async (t) => {
   const { auto, env } = setup(t);
   auto.setDevice({ id: 'AA' });

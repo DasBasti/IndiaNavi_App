@@ -34,6 +34,9 @@ export const createAutoConnect = ({
   let timer = null;
   let abort = null;
   let failures = 0;
+  // the user disconnected: no connection in the background until the next start of the app, the next connect or
+  // another device
+  let held = false;
   // 'idle', 'searching', 'connecting' or 'connected'
   let state = 'idle';
   // what the greeting after the last connect achieved
@@ -49,7 +52,7 @@ export const createAutoConnect = ({
     }
   };
 
-  const canRun = () => device !== null && active && paused === 0 && connection === null && !busy && manual === 0;
+  const canRun = () => device !== null && !held && active && paused === 0 && connection === null && !busy && manual === 0;
 
   const schedule = (delay) => {
     clearTimeout(timer);
@@ -165,6 +168,7 @@ export const createAutoConnect = ({
       }
       device = next ?? null;
       failures = 0;
+      held = false;
       stopScan();
       if (connection && connection.id !== device?.id) {
         const old = connection;
@@ -176,7 +180,8 @@ export const createAutoConnect = ({
       schedule(0);
     },
 
-    // false while the app is not in the foreground: no scanning then, a connection stays
+    // false while the app is not in the foreground: no scanning then, a connection stays. Coming back to the
+    // foreground tries again after failures, not after the user disconnected.
     setActive(value) {
       active = value;
       if (value) {
@@ -225,6 +230,7 @@ export const createAutoConnect = ({
           await old.disconnect();
         }
         failures = 0;
+        held = false;
         return await attempt(target, false);
       } finally {
         manual -= 1;
@@ -240,8 +246,11 @@ export const createAutoConnect = ({
         setState('idle');
         await old.disconnect();
       }
-      // the user wants it disconnected: not before the next start of the app or the next connect
-      failures = MAX_FAILURES;
+      // the user wants it disconnected, also when the app comes back to the foreground
+      held = true;
+      stopScan();
+      clearTimeout(timer);
+      timer = null;
     },
 
     getState: snapshot,
