@@ -42,7 +42,13 @@ the advertisement of the remembered device, connects as soon as it is seen, writ
 the connection for the Bluetooth screen. It never opens a permission dialog in the background and gives up after
 five failed tries until the app comes back to the foreground.
 
-Advertising: connectable, interval 500 to 600 ms, the 128 bit service UUID in the advertisement and the name
+The device disconnects a phone that did not read, write or subscribe for 5 minutes. After that it does not advertise
+continuously: it advertises for about 5 seconds (interval 100 to 120 ms) each time its screen updates. Reconnecting
+can therefore take up to one update interval (at most 600 s). The scans and the connect of the app
+(`RECONNECT_SCAN_TIMEOUT` in `modules/ble/protocol.js`, 615 s = longest update interval + 15 s; before 10 s scan,
+20 s connect) last that long.
+
+Advertising: connectable, the 128 bit service UUID in the advertisement and the name
 `IndiaNavi-XXXX` (the same suffix as the WiFi access point) in the scan response.
 
 ## Service and characteristics

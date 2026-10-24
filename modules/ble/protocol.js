@@ -203,6 +203,9 @@ export const SETTING_SHOW_HEIGHT_GRAPH = 0x02;
 export const UPDATE_INTERVAL_MIN = 30;
 export const UPDATE_INTERVAL_MAX = 600;
 export const UPDATE_INTERVAL_DEFAULT = 60;
+// The IndiaNavi disconnects a phone that did not use the connection for 5 minutes and then advertises only for a few
+// seconds each time the screen updates. A search has to last longer than the longest interval to see such a window.
+export const RECONNECT_SCAN_TIMEOUT = (UPDATE_INTERVAL_MAX + 15) * 1000;
 export const UPDATE_INTERVAL_CHOICES = [30, 60, 120, 300, 600];
 
 export const clampUpdateInterval = (seconds) => clamp(Math.round(seconds), UPDATE_INTERVAL_MIN, UPDATE_INTERVAL_MAX);
