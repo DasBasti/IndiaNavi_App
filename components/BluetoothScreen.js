@@ -377,7 +377,8 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
             </Hint>
             {connectingNow ? (
               <Message tone="yellow">
-                Connecting… If Android asks for a code, enter the six digits from the display of the IndiaNavi.
+                Connecting… The IndiaNavi disconnects after 5 minutes without use and reconnects when its screen updates, so
+                this can take up to one display update interval. If Android asks for a code, enter the six digits from the display of the IndiaNavi.
               </Message>
             ) : (
               <>
@@ -385,15 +386,18 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                   <Button title={`Connect to ${device.name ?? 'IndiaNavi'}`} onPress={() => connect(device)} disabled={!supported || scanning} />
                 )}
                 <Button
-                  title={scanning ? 'Searching…' : 'Search for an IndiaNavi'}
-                  onPress={scan}
-                  disabled={!supported || scanning}
+                  title={scanning ? 'Stop searching' : 'Search for an IndiaNavi'}
+                  onPress={scanning ? () => scanAbort.current?.abort() : scan}
+                  disabled={!supported}
                   variant={device?.id ? 'plain' : 'primary'}
                 />
               </>
             )}
             {found?.length === 0 && !scanning && (
-              <Message tone="yellow">No IndiaNavi found. Is it switched on and close to the phone?</Message>
+              <Message tone="yellow">
+                No IndiaNavi found. Is it switched on and close to the phone? After 5 minutes without use it disconnects and
+                can only be found when its screen updates, which takes up to 10 minutes.
+              </Message>
             )}
             {found?.map((entry) => (
               <Card key={entry.id} style={styles.found}>

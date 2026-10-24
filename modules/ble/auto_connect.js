@@ -8,7 +8,11 @@
 //   connect(id, { onDisconnected, quiet }) -> connection with syncTime() and sendPosition()
 //   getPosition({ ask })                   -> position of the phone
 
-const SCAN_TIMEOUT = 10000;
+import { RECONNECT_SCAN_TIMEOUT } from './protocol.js';
+
+// The device advertises only while its screen updates after it disconnected an idle phone, so one scan covers
+// a whole update interval.
+const SCAN_TIMEOUT = RECONNECT_SCAN_TIMEOUT;
 const SCAN_PAUSE = 20000;
 const RECONNECT_DELAY = 2000;
 const MAX_DELAY = 5 * 60000;

@@ -28,6 +28,7 @@ import {
   encodeWifiControl,
   fromBase64,
   toBase64,
+  RECONNECT_SCAN_TIMEOUT,
 } from './protocol.js';
 
 // Android answers the first access to a protected value only after the user entered the passkey of the display
@@ -35,7 +36,8 @@ const CONNECT_TIMEOUT = 20000;
 const PAIRING_TIMEOUT = 90000;
 // nobody is looking at the pairing dialog of a connection that nobody asked for
 const BACKGROUND_PAIRING_TIMEOUT = 30000;
-const SCAN_TIMEOUT = 10000;
+// a search has to cover one update interval of the screen, the device advertises only while the screen updates
+const SCAN_TIMEOUT = RECONNECT_SCAN_TIMEOUT;
 // the device asks for more, Android settles on what both sides support
 const REQUESTED_MTU = 247;
 
@@ -196,7 +198,8 @@ export class IndiaNaviConnection {
     if (!bluetooth) {
       throw new Error('Bluetooth is not ready.');
     }
-    const device = await bluetooth.connectToDevice(deviceId, { requestMTU: REQUESTED_MTU, timeout: CONNECT_TIMEOUT });
+    // a connection that the user asked for waits for the next advertising window, which opens when the screen updates
+    const device = await bluetooth.connectToDevice(deviceId, { requestMTU: REQUESTED_MTU, timeout: quiet ? CONNECT_TIMEOUT : RECONNECT_SCAN_TIMEOUT });
     try {
       await device.discoverAllServicesAndCharacteristics();
       const connection = new IndiaNaviConnection(device, null);
