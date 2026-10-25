@@ -8,6 +8,7 @@ import BluetoothScreen from './components/BluetoothScreen';
 import Button from './components/Button';
 import Icon from './components/Icon';
 import FilterScreen from './components/FilterScreen';
+import MarkerInfoScreen from './components/MarkerInfoScreen';
 import RecordingsScreen from './components/RecordingsScreen';
 import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
@@ -96,7 +97,7 @@ export default function App() {
   // set when the map is moved, a position of the phone that arrives later does not move it back
   const viewMoved = useRef(false);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
-  // 'main', 'tracks', 'filter', 'transfer', 'bluetooth' or 'recordings'
+  // 'main', 'tracks', 'filter', 'markers', 'transfer', 'bluetooth' or 'recordings'
   const [screen, setScreen] = useState('main');
   // the transfer screen sends the prepared files as soon as it is connected
   const [autoTransfer, setAutoTransfer] = useState(false);
@@ -277,9 +278,9 @@ export default function App() {
     }
   };
 
-  // the Android back button leaves the tracks and filter screen, the transfer and Bluetooth screens handle it themselves
+  // the Android back button leaves the tracks, filter and markers screen, the transfer and Bluetooth screens handle it themselves
   useEffect(() => {
-    if (screen !== 'filter' && screen !== 'tracks') {
+    if (screen !== 'filter' && screen !== 'tracks' && screen !== 'markers') {
       return;
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -351,6 +352,9 @@ export default function App() {
         </NavTile>
         <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
           <PaletteStrip size={8} />
+        </NavTile>
+        <NavTile label="Markers" onPress={() => setScreen('markers')} disabled={loading}>
+          <Icon name="GPS" size={32} />
         </NavTile>
         <NavTile label="Device" onPress={() => {
           setAutoTransfer(false);
@@ -475,6 +479,8 @@ export default function App() {
             onTileUrlChange={changeTileUrl}
             onBack={() => setScreen('main')}
           />
+        ) : screen === 'markers' ? (
+          <MarkerInfoScreen onBack={() => setScreen('main')} />
         ) : screen === 'bluetooth' ? (
           <BluetoothScreen
             device={settings.bleDevice}
