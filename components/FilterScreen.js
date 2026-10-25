@@ -3,6 +3,9 @@ import { Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, View, use
 
 import Button from './Button';
 import TileServerSetting from './TileServerSetting';
+import AreasInfo from './AreasInfo';
+import PoisInfo from './PoisInfo';
+import WaysInfo from './WaysInfo';
 import { Hint, Message, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
 import { exportFilterSettings, importFilterSettings } from '../modules/filter_file';
@@ -13,6 +16,11 @@ import { ZOOM_LEVELS } from '../modules/tiles';
 
 const PADDING = 16;
 const GAP = 8;
+
+// The filter converts the tiles, the vector map is drawn by the IndiaNavi itself and has a fixed look, so for
+// that mode the screen explains what the map shows
+const MODES = [['tiles', 'Tiles'], ['vector', 'Vector']];
+const VECTOR_PAGES = [['areas', 'Areas', AreasInfo], ['ways', 'Ways', WaysInfo], ['pois', 'POIs', PoisInfo]];
 
 // tiles are enlarged before they are shown, so the pixels and the dithering stay sharp when zoomed in
 const PREVIEW_SCALE = 4;
@@ -130,6 +138,9 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
   const [scrolling, setScrolling] = useState(true);
   // result of the last export or import: { tone, text }
   const [fileMessage, setFileMessage] = useState(null);
+  // 'tiles' or 'vector', and the page of the vector map: 'areas', 'ways' or 'pois'
+  const [mode, setMode] = useState('tiles');
+  const [vectorPage, setVectorPage] = useState('areas');
 
   useEffect(() => setDraft(filter), [filter]);
 
@@ -309,8 +320,24 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Conversion filter" onBack={onBack} />
+      <ScreenHeader title={mode === 'tiles' ? 'Conversion filter' : 'Vector map'} onBack={onBack} />
 
+      <View style={styles.row}>
+        {MODES.map(([id, title]) => (
+          <Button key={id} title={title} onPress={() => setMode(id)} variant={id === mode ? 'primary' : 'plain'} compact />
+        ))}
+      </View>
+
+      {mode === 'vector' ? (
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.row}>
+            {VECTOR_PAGES.map(([id, title]) => (
+              <Button key={id} title={title} onPress={() => setVectorPage(id)} variant={id === vectorPage ? 'primary' : 'plain'} compact />
+            ))}
+          </View>
+          {VECTOR_PAGES.map(([id, , Page]) => id === vectorPage && <Page key={id} />)}
+        </ScrollView>
+      ) : (
       <ScrollView contentContainerStyle={styles.content} scrollEnabled={scrolling}>
         <TileServerSetting url={tileUrlTemplate} onChange={onTileUrlChange} />
 
@@ -413,6 +440,7 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
         </Hint>
         {draft.map((_, index) => renderEntry(index))}
       </ScrollView>
+      )}
     </View>
   );
 }
