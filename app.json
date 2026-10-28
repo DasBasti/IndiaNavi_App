@@ -2,7 +2,7 @@
   "expo": {
     "name": "Wander Navi",
     "slug": "IndiaNavi_App",
-    "version": "1.4.0",
+    "version": "1.5.1",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
