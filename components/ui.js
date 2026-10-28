@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 
 import Button from './Button';
 import Icon from './Icon';
+import Walker, { walkerWidth } from './Walker';
 import { BORDER, PROGRESS_SEGMENTS, colors, font, onColor, shadow } from '../theme';
 
 // Title bar of a screen: back button, icon and title
@@ -74,9 +75,22 @@ export const ProgressBar = ({ done, total, color = colors.green }) => {
 const BUSY_DELAY = 250;
 const BUSY_STEP = 120;
 
-// Window over the screen while the app waits for something, the segments run until it is done. It catches the
-// touches and the back button, the screen below stays as it is.
-export const BusyWindow = ({ text }) => {
+const WALKER_SIZE = 72;
+
+// The walker above the progress bar, he walks along with the progress
+const WalkingProgress = ({ done, total }) => {
+  const [width, setWidth] = useState(0);
+  const share = Math.min(Math.max(done / Math.max(total, 1), 0), 1);
+  return (
+    <View style={styles.walkerTrack} onLayout={(event) => setWidth(event.nativeEvent.layout.width)}>
+      <Walker size={WALKER_SIZE} style={{ marginLeft: share * Math.max(width - walkerWidth(WALKER_SIZE), 0) }} />
+    </View>
+  );
+};
+
+// Window over the screen while the app waits for something, the walker walks and the segments run until it is done.
+// It catches the touches and the back button, the screen below stays as it is. detail is a smaller line below the bar.
+export const BusyWindow = ({ text, detail }) => {
   const [shown, setShown] = useState(false);
   const [step, setStep] = useState(0);
 
@@ -103,7 +117,9 @@ export const BusyWindow = ({ text }) => {
         <View style={styles.busyBackdrop}>
           <View style={[styles.card, styles.busyCard, shadow]}>
             <Text style={styles.busyText}>{text}</Text>
+            <Walker size={WALKER_SIZE} style={styles.walkerCenter} />
             <ProgressBar done={step} total={PROGRESS_SEGMENTS} />
+            {detail && <Text style={styles.progressDetail}>{detail}</Text>}
           </View>
         </View>
       )}
@@ -118,6 +134,7 @@ export const ProgressWindow = ({ visible, text, done, total, detail, onCancel })
     <View style={styles.busyBackdrop}>
       <View style={[styles.card, styles.busyCard, shadow]}>
         <Text style={styles.busyText}>{text}</Text>
+        <WalkingProgress done={done} total={total} />
         <ProgressBar done={done} total={total} />
         <View style={styles.progressRow}>
           <Text style={styles.progressDetail}>{detail}</Text>
@@ -211,6 +228,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
     color: colors.ink,
+  },
+  walkerCenter: {
+    alignSelf: 'center',
+    marginBottom: -12,
+  },
+  walkerTrack: {
+    alignSelf: 'stretch',
+    marginBottom: -12,
   },
   progressRow: {
     flexDirection: 'row',
