@@ -274,7 +274,9 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
         detail={progress && progressText(progress)}
         onCancel={() => abort.current?.abort()}
       />
-      <BusyWindow text={firmware === 'sending' ? 'Updating the firmware…' : null} />
+      <BusyWindow
+        text={firmware === 'sending' ? 'Updating the firmware…' : connecting ? 'Connecting to the IndiaNavi…' : null}
+      />
       <ScreenHeader title="IndiaNavi" icon={connection ? 'WIFI_3' : connecting ? 'WIFI_1' : 'WIFI_0'} onBack={onBack} disabled={busy} />
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">

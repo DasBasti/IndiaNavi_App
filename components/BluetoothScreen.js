@@ -348,7 +348,10 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
   return (
     <View style={styles.screen}>
       {update && <KeepAwake />}
-      <BusyWindow text={busy} />
+      <BusyWindow
+        text={busy ?? (connectingNow ? 'Connecting to the IndiaNavi…' : null)}
+        detail={!busy && connectingNow ? 'If Android asks for a code, enter the six digits from the display of the IndiaNavi.' : null}
+      />
       <ProgressWindow
         visible={update !== null}
         text="Updating the firmware"
