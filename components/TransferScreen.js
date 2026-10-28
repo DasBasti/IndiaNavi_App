@@ -25,6 +25,7 @@ import {
   disconnectFromDeviceWifi,
 } from '../modules/indianavi-wifi';
 import { listStoredTiles, listTileFiles } from '../modules/sd_card';
+import { SIMULATED_BASE, isSimulatedWifi } from '../modules/simulated_device';
 import { parseWifiQr } from '../modules/wifi_qr';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -148,7 +149,11 @@ export default function TransferScreen({ files, autoStart, device, onDeviceChang
     setResult(null);
     try {
       let base;
-      if (mode === 'accessPoint') {
+      if (mode === 'accessPoint' && isSimulatedWifi(credentials.ssid, credentials.password)) {
+        // no WiFi to join, the IndiaNavi of this name is simulated by the app
+        disconnectFromDeviceWifi();
+        base = SIMULATED_BASE;
+      } else if (mode === 'accessPoint') {
         const existing = await existingWifiConnection();
         // a scanned code of another IndiaNavi wins over the WiFi the phone is in
         if (existing && !(existing.ssid && credentials.ssid && existing.ssid !== credentials.ssid)) {

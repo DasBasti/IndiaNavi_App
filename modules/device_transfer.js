@@ -3,6 +3,7 @@ import { File } from "expo-file-system";
 
 import { recordingPath } from "./ble/protocol";
 import { checkFirmwareImage } from "./firmware_release";
+import { SIMULATED_BASE, simulatedResponse } from "./simulated_device";
 import { TRACK_PATH } from "./sd_card";
 
 // Address of the IndiaNavi in its own access point
@@ -39,6 +40,12 @@ const wait = (ms, signal) => new Promise((resolve, reject) => {
 
 // Sends a request to the device and returns { status, text }
 const request = async (base, method, path, { body, headers, signal, timeout = REQUEST_TIMEOUT } = {}) => {
+
+    if (base === SIMULATED_BASE) {
+        // a short pause, so the progress of a transfer can be seen
+        await wait(method === "PUT" ? 30 : 5, signal);
+        return simulatedResponse(method, path);
+    }
 
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -95,7 +102,7 @@ const listFolder = async (base, folder, signal) => {
 
 const putFile = async (base, file, signal) => {
 
-    const body = await new File(file.uri).bytes();
+    const body = base === SIMULATED_BASE ? null : await new File(file.uri).bytes();
     for (let attempt = 1; ; attempt++) {
         let response;
         try {
