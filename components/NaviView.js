@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Image, PixelRatio, StyleSheet, Text, View } from 'react-native';
 
 import Button from './Button';
@@ -6,6 +6,7 @@ import { BORDER, colors } from '../theme';
 import { DISPLAY_COLORS } from '../modules/map_color';
 import { NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, renderNaviScreen } from '../modules/navi_screen';
 import { encodePalettePng, pngDataUri } from '../modules/png';
+import { FramebufferView, dropFrame, setFrame } from '../modules/indianavi-mapsforge';
 
 // the screen is shown with the colors of the display, they are darker than the pure colors
 const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
@@ -47,10 +48,20 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
     [maps, readTile, view.lat, view.lon, zoomIndex, track, trackColor]
   );
 
-  // the pixels are enlarged before they are shown, so they stay sharp
+  // In a build of the app the pixels go to a native view as they are. Without it (web, Expo Go) they are enlarged into
+  // a PNG, so they stay sharp, which takes a few seconds on a phone.
+  const frameKey = useId();
+  const frames = useRef(0);
+  const version = useMemo(() => {
+    if (FramebufferView) {
+      setFrame(frameKey, screen.fb.pixels, SCREEN_WIDTH, SCREEN_HEIGHT, PALETTE);
+    }
+    return ++frames.current;
+  }, [screen, frameKey]);
+  useEffect(() => () => dropFrame(frameKey), [frameKey]);
   const scale = Math.min(Math.max(Math.ceil(factor * PixelRatio.get()), 1), 4);
   const uri = useMemo(
-    () => pngDataUri(encodePalettePng(screen.fb.pixels, SCREEN_WIDTH, SCREEN_HEIGHT, PALETTE, scale)),
+    () => (FramebufferView ? null : pngDataUri(encodePalettePng(screen.fb.pixels, SCREEN_WIDTH, SCREEN_HEIGHT, PALETTE, scale))),
     [screen, scale]
   );
 
@@ -62,7 +73,9 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
         {width > 0 && (
           <View style={[styles.device, { width: width + 2 * BEZEL, height: height + 2 * BEZEL }]}>
             <View style={[styles.display, { width, height }]}>
-              <Image source={{ uri }} style={{ width, height }} fadeDuration={0} />
+              {FramebufferView
+                ? <FramebufferView frameKey={frameKey} version={version} style={{ width, height }} />
+                : <Image source={{ uri }} style={{ width, height }} fadeDuration={0} />}
             </View>
           </View>
         )}
