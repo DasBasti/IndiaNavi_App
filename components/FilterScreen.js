@@ -17,9 +17,8 @@ import { ZOOM_LEVELS } from '../modules/tiles';
 const PADDING = 16;
 const GAP = 8;
 
-// The filter converts the tiles, the vector map is drawn by the IndiaNavi itself and has a fixed look, so for
-// that mode the screen explains what the map shows
-const MODES = [['tiles', 'Tiles'], ['vector', 'Vector']];
+// The filter converts the tiles of the converter mode, the vector map of the IndiaNavi mode is drawn by the device
+// itself and has a fixed look, so for that mode the screen explains what the map shows
 const VECTOR_PAGES = [['areas', 'Areas', AreasInfo], ['ways', 'Ways', WaysInfo], ['pois', 'POIs', PoisInfo]];
 
 // tiles are enlarged before they are shown, so the pixels and the dithering stay sharp when zoomed in
@@ -119,8 +118,9 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
   </View>
 );
 
-// Shows a tile of the map next to its converted version and lets the user change the filter and the tile server
-export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApply, onTileUrlChange, onBack }) {
+// mode 'tiles': shows a tile of the map next to its converted version and lets the user change the filter and the tile
+// server. mode 'vector': shows how the IndiaNavi draws the areas, ways and POIs of the vector map.
+export default function FilterScreen({ mode = 'tiles', filter, tileUrlTemplate, startTile, onApply, onTileUrlChange, onBack }) {
   const { width: windowWidth } = useWindowDimensions();
   const imageSize = Math.floor((windowWidth - 2 * PADDING - GAP) / 2);
 
@@ -138,13 +138,16 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
   const [scrolling, setScrolling] = useState(true);
   // result of the last export or import: { tone, text }
   const [fileMessage, setFileMessage] = useState(null);
-  // 'tiles' or 'vector', and the page of the vector map: 'areas', 'ways' or 'pois'
-  const [mode, setMode] = useState('tiles');
+  // the page of the vector map: 'areas', 'ways' or 'pois'
   const [vectorPage, setVectorPage] = useState('areas');
 
   useEffect(() => setDraft(filter), [filter]);
 
   useEffect(() => {
+    // the vector map has no tiles to load
+    if (mode !== 'tiles') {
+      return undefined;
+    }
     const controller = new AbortController();
     setImage(null);
     setError(null);
@@ -161,7 +164,7 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
         }
       });
     return () => controller.abort();
-  }, [tile, tileUrlTemplate]);
+  }, [mode, tile, tileUrlTemplate]);
 
   const converted = useMemo(() => {
     if (image === null) {
@@ -320,13 +323,7 @@ export default function FilterScreen({ filter, tileUrlTemplate, startTile, onApp
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title={mode === 'tiles' ? 'Conversion filter' : 'Vector map'} onBack={onBack} />
-
-      <View style={styles.row}>
-        {MODES.map(([id, title]) => (
-          <Button key={id} title={title} onPress={() => setMode(id)} variant={id === mode ? 'primary' : 'plain'} compact />
-        ))}
-      </View>
+      <ScreenHeader title={mode === 'tiles' ? 'Conversion filter' : 'Vector map colors'} onBack={onBack} />
 
       {mode === 'vector' ? (
         <ScrollView contentContainerStyle={styles.content}>
