@@ -71,18 +71,20 @@ const selectedTrack = (id) => {
 // Tablets in landscape show the map on the left and the controls on the right
 const SIDE_BY_SIDE_WIDTH = 720;
 
-// The main screen shows the IndiaNavi as it draws the vector map, or the converter of the tiles for the device
-const MODES = [['navi', 'IndiaNavi'], ['converter', 'Converter']];
-
-// Tile of the main navigation: icon with a label below
-const NavTile = ({ label, children, onPress, disabled }) => (
+// Tile of the main navigation: icon with a label below. The tile of the mode the main screen shows is selected.
+const NavTile = ({ label, children, onPress, disabled, selected }) => (
   <Pressable
     onPress={onPress}
     disabled={disabled}
     accessibilityRole="button"
-    style={({ pressed }) => [styles.navTile, disabled ? styles.navDisabled : pressed ? styles.navPressed : shadow]}>
+    accessibilityState={{ selected: !!selected }}
+    style={({ pressed }) => [
+      styles.navTile,
+      selected && styles.navSelected,
+      disabled ? styles.navDisabled : pressed ? styles.navPressed : shadow,
+    ]}>
     <View style={styles.navIcon}>{children}</View>
-    <Text style={styles.navLabel}>{label}</Text>
+    <Text style={styles.navLabel} numberOfLines={1} adjustsFontSizeToFit>{label}</Text>
   </Pressable>
 );
 
@@ -106,8 +108,11 @@ export default function App() {
   // set when the map is moved, a position of the phone that arrives later does not move it back
   const viewMoved = useRef(false);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
-  // 'main', 'tracks', 'filter', 'maps', 'transfer', 'bluetooth' or 'recordings'
+  // 'main', 'tracks', 'filter', 'maps', 'transfer', 'connection' or 'recordings'. The main screen shows the IndiaNavi
+  // as it draws the vector map, or the converter of the tiles for the device (settings.mode).
   const [screen, setScreen] = useState('main');
+  // the screen the file transfer goes back to
+  const [transferBack, setTransferBack] = useState('main');
   // the transfer screen sends the prepared files as soon as it is connected
   const [autoTransfer, setAutoTransfer] = useState(false);
   const [error, setError] = useState(null);
@@ -397,33 +402,17 @@ export default function App() {
         <Text style={styles.title}>Wander Navi</Text>
       </View>
 
-      <View style={styles.modes}>
-        {MODES.map(([id, title]) => (
-          <Button
-            key={id}
-            title={title}
-            onPress={() => changeSettings({ mode: id })}
-            disabled={loading}
-            variant={id === mode ? 'primary' : 'plain'}
-            compact
-          />
-        ))}
-      </View>
-
       <View style={styles.nav}>
         <NavTile label="Tracks" onPress={() => setScreen('tracks')} disabled={loading}>
           <Icon name="path" size={32} />
         </NavTile>
-        <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
-          <PaletteStrip size={8} />
+        <NavTile label="IndiaNavi" onPress={() => changeSettings({ mode: 'navi' })} disabled={loading} selected={mode === 'navi'}>
+          <Icon name="norden" size={32} />
         </NavTile>
-        <NavTile label="Device" onPress={() => {
-          setAutoTransfer(false);
-          setScreen('transfer');
-        }} disabled={loading}>
-          <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
+        <NavTile label="Converter" onPress={() => changeSettings({ mode: 'converter' })} disabled={loading} selected={mode === 'converter'}>
+          <Icon name="SD" size={32} />
         </NavTile>
-        <NavTile label="Bluetooth" onPress={() => setScreen('bluetooth')} disabled={loading}>
+        <NavTile label="Connection" onPress={() => setScreen('connection')} disabled={loading}>
           <BluetoothIcon />
         </NavTile>
       </View>
@@ -474,6 +463,7 @@ export default function App() {
         {vectorMap?.map ? displayName(settings.vectorMap) : 'No vector map selected'}
       </Text>
       <Button title="Maps" onPress={() => setScreen('maps')} variant="plain" compact />
+      <Button title="Colors" onPress={() => setScreen('filter')} variant="plain" compact />
     </View>
   );
 
@@ -518,6 +508,15 @@ export default function App() {
         </Text>
       </Card>
 
+      <Pressable
+        onPress={() => setScreen('filter')}
+        disabled={loading}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.filterButton, loading ? styles.navDisabled : pressed ? styles.navPressed : shadow]}>
+        <PaletteStrip size={8} />
+        <Text style={styles.navLabel}>Filter</Text>
+      </Pressable>
+
       <View style={styles.row}>
         <Text style={styles.marginText}>Margin: {margin} tiles</Text>
         <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
@@ -541,6 +540,7 @@ export default function App() {
       {prepared && !loading && (
         <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => {
           setAutoTransfer(true);
+          setTransferBack('main');
           setScreen('transfer');
         }} />
       )}
@@ -588,13 +588,14 @@ export default function App() {
             }}
             onBack={() => setScreen('main')}
           />
-        ) : screen === 'bluetooth' ? (
+        ) : screen === 'connection' ? (
           <BluetoothScreen
             device={settings.bleDevice}
             onDeviceChange={(bleDevice) => changeSettings({ bleDevice })}
             onTrackColorChange={(newTrackColor) => changeSettings({ trackColor: newTrackColor })}
             onOpenWifi={() => {
               setAutoTransfer(false);
+              setTransferBack('connection');
               setScreen('transfer');
             }}
             onOpenRecordings={() => setScreen('recordings')}
@@ -607,9 +608,10 @@ export default function App() {
             onShowTrack={selectTrack}
             onOpenWifi={() => {
               setAutoTransfer(false);
+              setTransferBack('recordings');
               setScreen('transfer');
             }}
-            onBack={() => setScreen('bluetooth')}
+            onBack={() => setScreen('connection')}
           />
         ) : screen === 'transfer' ? (
           <TransferScreen
@@ -618,7 +620,7 @@ export default function App() {
             device={settings.device ?? {}}
             onDeviceChange={(device) => changeSettings({ device })}
             onTransferred={() => changeSettings({ deviceTrackId: track?.id })}
-            onBack={() => setScreen('main')}
+            onBack={() => setScreen(transferBack)}
           />
         ) : (
           sideBySide ? (
@@ -698,7 +700,8 @@ const styles = StyleSheet.create({
   navLabel: {
     fontFamily: font.mono,
     fontWeight: 'bold',
-    fontSize: 13,
+    // CONNECTION fits a quarter of a small phone
+    fontSize: 11,
     textTransform: 'uppercase',
     color: colors.ink,
   },
@@ -726,9 +729,20 @@ const styles = StyleSheet.create({
   controlsContent: {
     gap: 12,
   },
-  modes: {
+  navSelected: {
+    backgroundColor: colors.green,
+  },
+  filterButton: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.yellow,
+    marginRight: SHADOW,
+    marginBottom: SHADOW,
   },
   navi: {
     flex: 1,
