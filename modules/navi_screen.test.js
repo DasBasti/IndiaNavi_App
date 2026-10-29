@@ -103,6 +103,31 @@ test('neighbouring maps are drawn together, an older copy of one is left out', (
   assert.equal(renderNaviScreen({ maps: [old], lat, lon: a.maxLon }).drawn.length, 1);
 });
 
+test('without a vector map at the position the tiles of the card are drawn', () => {
+  const map = openMap(bufferSource(buildTestMap({ lat: LAT, lon: LON, ways: [] })));
+  const requested = [];
+  // the tile in the middle is orange on the left and yellow on the right pixel of every byte, the others are missing
+  const readTile = (tile) => {
+    requested.push(tile);
+    return requested.length === 5 ? new Uint8Array(32768).fill(0x65) : null;
+  };
+  const far = renderNaviScreen({ maps: [map], readTile, lat: LAT + 1, lon: LON });
+  assert.equal(far.source, 'tiles');
+  assert.equal(far.tiles, 1);
+  assert.equal(requested.length, 9);
+  assert.ok(requested.every(({ zoom }) => zoom === 16));
+  // the middle tile is at 97..352 x 171..426 on the display
+  assert.equal(at(far.fb, 97, 300), 6);
+  assert.equal(at(far.fb, 98, 300), 5);
+  // "Not Found" in black in the tile above it
+  assert.ok(far.fb.pixels.slice(30 * SCREEN_WIDTH, 150 * SCREEN_WIDTH).some((ink, i) => ink === BLACK && i % SCREEN_WIDTH > 100 && i % SCREEN_WIDTH < 350));
+
+  // on the vector map the tiles are not read
+  requested.length = 0;
+  assert.equal(renderNaviScreen({ maps: [map], readTile, lat: LAT, lon: LON }).source, 'vector');
+  assert.equal(requested.length, 0);
+});
+
 test('a track gets its line and the height graph', () => {
   const line = Array.from({ length: 40 }, (_, i) => [LON - 0.002 + i * 0.0001, LAT, 200 + i * 5]);
   const withTrack = renderNaviScreen({ lat: LAT, lon: LON, track: { name: 'Felsenland', lines: [line] }, trackColor: RED });

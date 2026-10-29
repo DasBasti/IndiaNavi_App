@@ -252,13 +252,44 @@ const mapsOfScreen = (maps, screen) => {
   return selectMaps(entries, screen, MAX_DRAWN).map(({ map }) => map);
 };
 
-// Draws the map screen. options: { maps (of openMap, the maps on the SD card), lat, lon, zoomIndex (into NAVI_ZOOMS),
-// track: { name, lines } or null, trackColor (ink), showTrack, showHeightGraph, battery, satellites, hdop, altitude }.
-// Returns { fb, tiles, drawn, error }: tiles is the number of map tiles that were drawn, drawn the maps that were
-// drawn, error a failed map read.
+// bytes of a raw tile: 256 x 256 pixels, 4 bit per pixel
+const RAW_TILE_BYTES = TILE * TILE / 2;
+
+// The tiles of the SD card in the 3x3 tiles around the position, as map_render of the firmware draws them: the raw
+// pixels (the high 4 bits are the left pixel), "Not Found" in a tile that is not there. Returns the tiles drawn.
+const drawRasterTiles = (fb, readTile, zoom, centerTileX, centerTileY) => {
+  let drawn = 0;
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      const left = MAP_LEFT + i * TILE;
+      const top = MAP_TOP + j * TILE;
+      const data = readTile?.({ zoom, x: centerTileX - 1 + i, y: centerTileY - 1 + j });
+      if (!data || data.length < RAW_TILE_BYTES) {
+        const notFound = 'Not Found';
+        drawText(fb, left + 1 + Math.trunc((TILE - textWidth(notFound)) / 2), top + 1 + (TILE - CHAR_HEIGHT) / 2, notFound, BLACK);
+        continue;
+      }
+      drawn++;
+      for (let y = Math.max(0, -top); y < TILE && top + y < SCREEN_HEIGHT; y++) {
+        for (let x = Math.max(0, -left); x < TILE && left + x < SCREEN_WIDTH; x++) {
+          const byte = data[(y * TILE + x) >> 1];
+          fb.pixels[(top + y) * SCREEN_WIDTH + left + x] = x & 1 ? byte & 0x0f : byte >> 4;
+        }
+      }
+    }
+  }
+  return drawn;
+};
+
+// Draws the map screen. options: { maps (of openMap, the maps on the SD card), readTile ({ zoom, x, y } => the raw
+// tile of the SD card or null), lat, lon, zoomIndex (into NAVI_ZOOMS), track: { name, lines } or null, trackColor
+// (ink), showTrack, showHeightGraph, battery, satellites, hdop, altitude }.
+// Like the firmware it draws the vector maps when one covers the screen, the tiles otherwise.
+// Returns { fb, source, tiles, drawn, error }: source is 'vector' or 'tiles', tiles the number of map tiles that were
+// drawn (of the vector maps or the raw tiles), drawn the vector maps that were drawn, error a failed map read.
 export const renderNaviScreen = ({
-  maps = [], lat, lon, zoomIndex = 0, track = null, trackColor = BLUE, showTrack = true, showHeightGraph = true,
-  battery = 80, satellites = 9, hdop = 1, altitude = 0,
+  maps = [], readTile = null, lat, lon, zoomIndex = 0, track = null, trackColor = BLUE, showTrack = true,
+  showHeightGraph = true, battery = 80, satellites = 9, hdop = 1, altitude = 0,
 }) => {
   const fb = makeFramebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
   const { zoom, scale, text } = NAVI_ZOOMS[zoomIndex] ?? NAVI_ZOOMS[0];
@@ -282,6 +313,8 @@ export const renderNaviScreen = ({
     } catch (e) {
       error = e;
     }
+  } else {
+    tiles = drawRasterTiles(fb, readTile, zoom, Math.floor(worldX), Math.floor(worldY));
   }
 
   const points = track ? track.lines.flat() : [];
@@ -322,5 +355,5 @@ export const renderNaviScreen = ({
   fillRect(fb, 0, infoTop, SCREEN_WIDTH, INFO_HEIGHT, BLACK);
   drawText(fb, 1 + Math.trunc((SCREEN_WIDTH - textWidth(info)) / 2), infoTop + 1 + (INFO_HEIGHT - CHAR_HEIGHT) / 2, info, WHITE);
 
-  return { fb, tiles, drawn, error };
+  return { fb, source: drawn.length > 0 ? 'vector' : 'tiles', tiles, drawn, error };
 };

@@ -19,7 +19,8 @@ const BEZEL = 10;
 // and the 500 m scale like the button of the device.
 // view is { lon, lat } of the position, onViewChange gets the new one. A track (lines) is drawn with its height graph,
 // fitKey moves the position to the start of the track once.
-export default function NaviView({ maps, view, onViewChange, zoomIndex, onZoomChange, track, fitKey, trackColor }) {
+// readTile reads a raw tile ({ zoom, x, y }) the device would show where no vector map covers the screen.
+export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex, onZoomChange, track, fitKey, trackColor }) {
   const [size, setSize] = useState(null);
   // display pixels the screen is dragged by the finger, committed to the position when it is released
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -65,8 +66,8 @@ export default function NaviView({ maps, view, onViewChange, zoomIndex, onZoomCh
 
   // the screen is drawn again after every change, drawing a map takes some 10 to a few 100 ms
   const screen = useMemo(
-    () => renderNaviScreen({ maps, lat: view.lat, lon: view.lon, zoomIndex, track, trackColor }),
-    [maps, view.lat, view.lon, zoomIndex, track, trackColor]
+    () => renderNaviScreen({ maps, readTile, lat: view.lat, lon: view.lon, zoomIndex, track, trackColor }),
+    [maps, readTile, view.lat, view.lon, zoomIndex, track, trackColor]
   );
 
   // the pixels are enlarged before they are shown, so they stay sharp
@@ -96,8 +97,12 @@ export default function NaviView({ maps, view, onViewChange, zoomIndex, onZoomCh
       {screen.error && (
         <Text style={styles.error}>The map can not be read: {screen.error.message}</Text>
       )}
-      {!screen.error && screen.tiles === 0 && (
-        <Text style={styles.note}>The position is outside of the vector maps, the IndiaNavi shows no map here.</Text>
+      {!screen.error && screen.source === 'tiles' && (
+        <Text style={styles.note}>
+          {screen.tiles > 0
+            ? 'No vector map covers this place, the IndiaNavi shows the tiles of the converter here.'
+            : 'No vector map and no tiles for this place, the IndiaNavi shows "Not Found" here.'}
+        </Text>
       )}
       <Button
         title={`Scale ${NAVI_ZOOMS[zoomIndex].text} ⇄ ${NAVI_ZOOMS[(zoomIndex + 1) % NAVI_ZOOMS.length].text}`}

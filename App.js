@@ -20,7 +20,7 @@ import { Badge, Card, Hint, Message, PaletteStrip, ProgressWindow } from './comp
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER, isFilter } from './modules/map_color';
-import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
+import { deleteTiles, deleteTrack, hasFile, listSdCardFiles, tileFile, trackFile, writeFile } from './modules/sd_card';
 import { autoConnect } from './modules/ble/background';
 import { getPhonePosition } from './modules/ble/phone_position';
 import { TRACK_COLOR_DEFAULT, TRACK_COLOR_MAX } from './modules/ble/protocol';
@@ -40,6 +40,16 @@ const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 // Dahner Felsenland, shown as long as there is no track, the map was not moved and the phone has no position
 const DEFAULT_VIEW = { lon: 7.765, lat: 49.143, zoom: 13 };
+
+// A raw tile of the converter on the phone, the IndiaNavi shows the tiles where no vector map covers the screen
+const readTile = (tile) => {
+  try {
+    const file = tileFile(tile);
+    return hasFile(file) ? file.bytesSync() : null;
+  } catch {
+    return null;
+  }
+};
 
 const isView = (view) =>
   [view?.lon, view?.lat, view?.zoom].every(Number.isFinite);
@@ -447,6 +457,7 @@ export default function App() {
     <View style={styles.navi}>
       <NaviView
         maps={vectorMaps.maps}
+        readTile={readTile}
         view={view}
         onViewChange={changeView}
         zoomIndex={naviZoom}
