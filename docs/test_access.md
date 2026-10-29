@@ -28,7 +28,8 @@ with the **Files** and **Firmware** sections below it.
 - **Vector maps** lists the maps checked on the Maps screen and the maps on the simulated SD card. **Send** stores
   a map on the simulated card (only its size, date and area, nothing is copied) and shows its progress, **Delete**
   removes it. A newer map of the same region shows the older one as replaced. The simulated card keeps the maps
-  while the app runs.
+  while the app runs. Cancelling a map that is sent keeps its part on the simulated card like the device does, the map then
+  shows **Continue**, which sends the rest.
 
 Nothing is sent over the network, the files are not copied anywhere.
 

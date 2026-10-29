@@ -1,8 +1,9 @@
 import { fetch } from "expo/fetch";
-import { File, UploadTask } from "expo-file-system";
+import { File, FileMode, Paths, UploadTask } from "expo-file-system";
 
 import { recordingPath } from "./ble/protocol";
 import { checkFirmwareImage } from "./firmware_release";
+import { contentRange, resumeOffset } from "./map_upload";
 import { SIMULATED_BASE, simulatedResponse } from "./simulated_device";
 import { TRACK_PATH } from "./sd_card";
 
@@ -272,65 +273,141 @@ export const downloadRecording = async (base, id, { signal, token } = {}) => {
 // true if the device takes vector maps over WiFi (API version 2)
 export const supportsMaps = (info) => info.api >= 2 && info.vector_maps === true;
 
+// true if an upload of a map that broke can be continued (API version 3)
+export const supportsResume = (info) => supportsMaps(info) && info.api >= 3;
+
 // The vector maps on the SD card of the device, read from their headers:
-// [{ file, size, created, bounds: { minLat, minLon, maxLat, maxLon }, used }], used is false for a map that is
-// replaced by a newer one of the same region
+// { maps: [{ file, size, created, bounds: { minLat, minLon, maxLat, maxLon }, used }], partial: [{ file, size, total,
+// created }] }. used is false for a map that is replaced by a newer one of the same region. partial are the maps whose
+// upload was not finished, size is on the card, total and created come from the header of the map (API version 3).
 export const getDeviceMaps = async (base, signal) => {
     const response = await request(base, "GET", "/api/maps", { signal });
     if (response.status !== 200) {
         throw httpError("Maps", response);
     }
-    return JSON.parse(response.text).maps.map(({ bounds: [minLat, minLon, maxLat, maxLon], ...map }) => ({
-        ...map,
-        bounds: { minLat, minLon, maxLat, maxLon },
-    }));
+    const { maps, partial = [] } = JSON.parse(response.text);
+    return {
+        maps: maps.map(({ bounds: [minLat, minLon, maxLat, maxLon], ...map }) => ({
+            ...map,
+            bounds: { minLat, minLon, maxLat, maxLon },
+        })),
+        partial,
+    };
 }
 
 export const mapPath = (file) => `MAPS/${file}`;
 
-// Deletes a vector map of the SD card and lets the device read its maps again
+// Deletes a vector map of the SD card, and the part of it of an upload that was not finished, and lets the device
+// read its maps again
 export const deleteDeviceMap = async (base, file, signal) => {
     await deleteFile(base, mapPath(file), signal);
     await request(base, "POST", "/api/reload", { signal });
 }
 
-// Sends a vector map ({ uri, size, created, bounds } of the map on the phone) to the SD card as file (an 8.3 name).
-// The file is streamed from the phone, maps have hundreds of MB. The device shows the progress on its display and
-// reads its maps again afterwards. onProgress gets { bytesSent, totalBytes }.
-export const sendMap = async (base, map, file, { signal, onProgress } = {}) => {
+// blocks of the copy of the rest of a map
+const COPY_BLOCK = 4 * 1024 * 1024;
 
-    const path = mapPath(file);
-    const announced = await request(base, "POST", "/api/transfer", {
-        body: JSON.stringify({ files: 1, bytes: map.size }),
-        headers: { "Content-Type": "application/json" },
-        signal,
-    });
-    if (announced.status !== 200) {
-        throw httpError("Transfer", announced);
+// Copies the bytes from start to the end of a file into a file of the cache: the upload only sends whole files.
+// Returns the copy.
+const copyRest = async (uri, start, size, signal) => {
+    const copy = new File(Paths.cache, "map-upload.part");
+    if (copy.exists) {
+        copy.delete();
+    }
+    copy.create();
+    const source = new File(uri).open(FileMode.ReadOnly);
+    const target = copy.open(FileMode.Truncate);
+    try {
+        source.offset = start;
+        for (let at = start; at < size; at += COPY_BLOCK) {
+            if (signal?.aborted) {
+                throw new Error("cancelled");
+            }
+            target.writeBytes(source.readBytes(Math.min(COPY_BLOCK, size - at)));
+            // the screen stays responsive while hundreds of MB are copied
+            await wait(0, signal);
+        }
+    } finally {
+        source.close();
+        target.close();
+    }
+    return copy;
+};
+
+// Sends the bytes from start to the end of a map, returns { status, text } of the device
+const putMap = async (base, map, path, { start, resumable, signal, onProgress }) => {
+
+    const progress = (sent) => onProgress?.({ bytesSent: start + sent, totalBytes: map.size });
+    const headers = { "Content-Type": "application/octet-stream" };
+    if (resumable) {
+        headers["Content-Range"] = contentRange(start, map.size);
     }
 
+    if (base === SIMULATED_BASE) {
+        // a few steps of progress, nothing is sent. A cancelled upload leaves its part on the card like on the device.
+        const length = map.size - start;
+        const range = resumable ? { start, end: map.size - 1, total: map.size } : undefined;
+        for (let step = 1; step <= 20; step++) {
+            try {
+                await wait(150, signal);
+            } catch (error) {
+                simulatedResponse("PUT", `/sd/${path}`, { map, range, received: Math.floor(length * (step - 1) / 20) });
+                throw error;
+            }
+            progress(length * step / 20);
+        }
+        return simulatedResponse("PUT", `/sd/${path}`, { map, range });
+    }
+
+    const rest = start > 0 ? await copyRest(map.uri, start, map.size, signal) : null;
+    const task = new UploadTask(rest ?? new File(map.uri), `${base}/sd/${path}`, {
+        httpMethod: "PUT",
+        headers,
+        onProgress: ({ bytesSent }) => progress(bytesSent),
+        signal,
+    });
+    try {
+        const response = await task.uploadAsync();
+        return { status: response.status, text: response.body };
+    } finally {
+        task.release();
+        if (rest?.exists) {
+            rest.delete();
+        }
+    }
+
+};
+
+// Sends a vector map ({ uri, size, created, bounds } of the map on the phone) to the SD card as file (an 8.3 name).
+// The file is streamed from the phone, maps have hundreds of MB. The device shows the progress on its display and
+// reads its maps again afterwards. onProgress gets { bytesSent, totalBytes } of the whole map.
+// With resumable (API version 3) the device keeps the part of a broken upload, and start continues it there (see
+// resumeOffset of map_upload.js). Returns the number of bytes that were sent.
+export const sendMap = async (base, map, file, { signal, onProgress, resumable = false, start = 0 } = {}) => {
+
+    const path = mapPath(file);
+    let from = resumable ? start : 0;
+    const announce = async () => {
+        const announced = await request(base, "POST", "/api/transfer", {
+            body: JSON.stringify({ files: 1, bytes: map.size - from }),
+            headers: { "Content-Type": "application/json" },
+            signal,
+        });
+        if (announced.status !== 200) {
+            throw httpError("Transfer", announced);
+        }
+    };
+
+    await announce();
     let result;
     try {
-        if (base === SIMULATED_BASE) {
-            // a few steps of progress, nothing is sent
-            for (let step = 1; step <= 10; step++) {
-                await wait(100, signal);
-                onProgress?.({ bytesSent: map.size * step / 10, totalBytes: map.size });
-            }
-            result = simulatedResponse("PUT", `/sd/${path}`, { map });
-        } else {
-            const task = new UploadTask(new File(map.uri), `${base}/sd/${path}`, {
-                httpMethod: "PUT",
-                headers: { "Content-Type": "application/octet-stream" },
-                onProgress,
-                signal,
-            });
-            try {
-                const response = await task.uploadAsync();
-                result = { status: response.status, text: response.body };
-            } finally {
-                task.release();
-            }
+        result = await putMap(base, map, path, { start: from, resumable, signal, onProgress });
+        if (result.status === 416) {
+            // the part on the card is not what the app knew, continue where it really ends
+            const { partial } = await getDeviceMaps(base, signal);
+            from = resumeOffset(map, partial.find((entry) => entry.file === file));
+            await announce();
+            result = await putMap(base, map, path, { start: from, resumable, signal, onProgress });
         }
     } catch (error) {
         // removes the progress from the display
@@ -348,6 +425,7 @@ export const sendMap = async (base, map, file, { signal, onProgress } = {}) => {
     if (reloaded.status !== 204) {
         throw httpError("Reload", reloaded);
     }
+    return map.size - from;
 
 }
 

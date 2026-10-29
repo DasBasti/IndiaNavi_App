@@ -35,7 +35,7 @@ test('vector maps can be sent to the simulated card, listed and deleted', () => 
   const bounds = { minLat: 48.96, minLon: 6.11, maxLat: 50.95, maxLon: 8.51 };
   const listed = () => JSON.parse(simulatedResponse('GET', '/api/maps').text).maps;
   assert.deepEqual(listed(), []);
-  assert.equal(JSON.parse(simulatedResponse('GET', '/api/info').text).api, 2);
+  assert.equal(JSON.parse(simulatedResponse('GET', '/api/info').text).api, 3);
 
   assert.equal(simulatedResponse('PUT', '/sd/MAPS/rheinl01.map', { map: { size: 1000, created: 1, bounds } }).status, 204);
   assert.equal(simulatedResponse('PUT', '/sd/MAPS/rheinl02.map', { map: { size: 2000, created: 2, bounds } }).status, 204);
@@ -51,4 +51,28 @@ test('vector maps can be sent to the simulated card, listed and deleted', () => 
   assert.equal(simulatedResponse('DELETE', '/sd/MAPS/rheinl01.map').status, 404);
   assert.deepEqual(listed().map(({ file }) => file), ['rheinl02.map']);
   clearSimulatedMaps();
+});
+
+test('an upload of a map that broke is continued where it ended', () => {
+  clearSimulatedMaps();
+  const map = { size: 1000, created: 7, bounds: { minLat: 49, minLon: 7, maxLat: 49.5, maxLon: 7.5 } };
+  const maps = () => JSON.parse(simulatedResponse('GET', '/api/maps').text);
+  const put = (start, received) =>
+    simulatedResponse('PUT', '/sd/MAPS/saarla01.map', { map, range: { start, end: 999, total: 1000 }, received });
+
+  // the connection breaks after 400 bytes, the card keeps them with the size and date of the header
+  assert.equal(put(0, 400).status, 0);
+  assert.deepEqual(maps(), { maps: [], partial: [{ file: 'saarla01.map', size: 400, total: 1000, created: 7 }] });
+
+  // the rest has to start where the part on the card ends
+  assert.equal(put(300).status, 416);
+  assert.equal(put(400).status, 204);
+  assert.deepEqual(maps().partial, []);
+  assert.deepEqual(maps().maps.map(({ file, size }) => [file, size]), [['saarla01.map', 1000]]);
+
+  // a part without the whole header has no size and date yet, deleting the map removes the part
+  assert.equal(put(0, 20).status, 0);
+  assert.deepEqual(maps().partial, [{ file: 'saarla01.map', size: 20, total: 0, created: 0 }]);
+  assert.equal(simulatedResponse('DELETE', '/sd/MAPS/saarla01.map').status, 204);
+  assert.deepEqual(maps(), { maps: [], partial: [] });
 });

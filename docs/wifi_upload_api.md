@@ -1,7 +1,7 @@
 # IndiaNavi WiFi upload API
 
-Status: version 2, implemented in the firmware (`src/esp32/upload_server.c`). Version 2 adds the vector maps
-(`MAPS/{name}.map`, `GET /api/maps`).
+Status: version 3, implemented in the firmware (`src/esp32/upload_server.c`). Version 2 adds the vector maps
+(`MAPS/{name}.map`, `GET /api/maps`), version 3 uploads of maps that can be continued (`Content-Range`).
 The server runs while the device is charging, because only then WiFi is on.
 The device opens its own access point for the app (see "Transport").
 
@@ -117,7 +117,7 @@ Response `200`, `Content-Type: application/json`:
 {
   "id": "MeinIndiaNavi",
   "firmware": "1.2.3",
-  "api": 2,
+  "api": 3,
   "ota": true,
   "vector_maps": true,
   "sd": { "present": true, "free": 1234567890, "total": 7948206080 }
@@ -128,7 +128,7 @@ Response `200`, `Content-Type: application/json`:
 |---|---|
 | `id` | `<id>` from `config.xml` |
 | `firmware` | firmware version, free text |
-| `api` | version of this API, `2` for this document |
+| `api` | version of this API, `3` for this document |
 | `ota` | `true` if the device accepts `PUT /api/firmware`. Missing on older firmware |
 | `vector_maps` | `true` if the firmware draws vector maps, then it accepts `MAPS/{name}.map` and `GET /api/maps`. Missing before version 2 |
 | `sd.present` | `false` if no SD card is mounted; `free` and `total` are `0` then |
@@ -145,6 +145,9 @@ Response `200`, `Content-Type: application/json`:
   "maps": [
     { "file": "rheinl01.map", "size": 301234567, "created": 1759550000000,
       "bounds": [48.96, 6.11, 50.95, 8.51], "used": true }
+  ],
+  "partial": [
+    { "file": "saarla01.map", "size": 10485760, "total": 20971520, "created": 1759550000000 }
   ]
 }
 ```
@@ -156,6 +159,9 @@ Response `200`, `Content-Type: application/json`:
 | `created` | creation date of the map in milliseconds since 1970, from its header |
 | `bounds` | `[min_lat, min_lon, max_lat, max_lon]` |
 | `used` | `false` if a newer map covers at least 90 % of it, then it is not drawn |
+| `partial` | version 3: maps whose upload was not finished (`{name}.tmp` on the card) |
+| `partial[].size` | bytes of it on the card |
+| `partial[].total`, `partial[].created` | size and creation date of the map from the start of its header, `0` while not all 44 bytes of it are on the card. The app continues only the same map |
 
 Files that are no Mapsforge map are not listed. `404` if the firmware has no vector maps, `503` if the card can
 not be read.
@@ -211,7 +217,16 @@ Rules:
 4. **Overwrite.** An existing file is replaced.
 5. **Answer after the write.** The `204` is sent after the file is closed and
    renamed, not when the body was received.
-6. **Big files.** A map is one request of many minutes. The device keeps its
+6. **Continue a map (version 3).** A map can be sent with
+   `Content-Range: bytes {start}-{end}/{total}` (`end` included). With `start` 0
+   the `.tmp` file is created, a higher `start` continues it and has to be its
+   size, else the answer is `416` with the size on the card in the text. The
+   body has `end - start + 1` bytes, the file is renamed when it has `total`
+   bytes. When the connection breaks, the `.tmp` file keeps the bytes that
+   came in (without `Content-Range` it is deleted as before), `GET /api/maps`
+   lists it under `partial`. `Content-Range` is only accepted for maps, `400`
+   otherwise. `DELETE /sd/MAPS/{name}.map` also deletes the `.tmp` file.
+7. **Big files.** A map is one request of many minutes. The device keeps its
    WiFi and an announced transfer running while bytes come in. The card needs
    the size of the file free, also when it replaces a map of the same name.
    Files are at most 4 GB - 1 (FAT32, and `Content-Length` is 32 bit on the
@@ -339,9 +354,10 @@ Errors have a short plain text body with the reason, for the log of the app.
 
 | Status | When |
 |---|---|
-| `400` | path not allowed or malformed |
+| `400` | path not allowed or malformed, `Content-Range` that does not fit |
 | `404` | file or folder does not exist (`GET`, `DELETE`) |
 | `411` | `PUT` without `Content-Length` |
+| `416` | `Content-Range` does not start where the part of the map on the card ends |
 | `500` | write, rename or delete failed |
 | `503` | no SD card, or the card is busy |
 | `507` | not enough space on the card |
@@ -369,11 +385,16 @@ Vector maps (version 2, `vector_maps` in `GET /api/info`):
 1. `GET /api/maps` to see which maps are on the card.
 2. For a map that is missing or has another size: check `sd.free` of `GET /api/info`,
    `POST /api/transfer` with `{"files": 1, "bytes": <size>}`, `PUT /sd/MAPS/{name}.map`
-   streamed from the file, `POST /api/reload`.
+   streamed from the file, `POST /api/reload`. From version 3 with
+   `Content-Range: bytes 0-{size - 1}/{size}`, and when `partial` has the same map
+   (same `total` and `created`) only the rest: `bytes {partial size}-{size - 1}/{size}`,
+   announced with the bytes of the rest. The device seeks to the end of the part
+   once, the rest is one request. On `416` the app reads `partial` again.
 3. `DELETE /sd/MAPS/{name}.map` and `POST /api/reload` removes a map.
 
 The speed of a single big upload is not measured yet; at the 180 kB/s of the tiles a map of 300 MB takes about
-half an hour.
+half an hour. The app measures the speed of every map it sends (at least 10 seconds) and estimates the next ones
+from it.
 
 ## Testing without the app
 
@@ -385,6 +406,8 @@ curl -T track.gpx http://indianavi.local/sd/track.gpx
 curl -X DELETE http://indianavi.local/sd/MAPS/16/34169/22454.raw
 curl http://indianavi.local/api/maps
 curl -T germany-saarland.map http://indianavi.local/sd/MAPS/saarla01.map
+# the rest of a map from byte 10485760 of 20971520
+tail -c +10485761 germany-saarland.map > rest && curl -T rest -H 'Content-Range: bytes 10485760-20971519/20971520' http://indianavi.local/sd/MAPS/saarla01.map
 curl -X POST http://indianavi.local/api/reload
 curl -X POST -d '{"files": 2, "bytes": 65536}' http://indianavi.local/api/transfer
 curl http://indianavi.local/api/transfer

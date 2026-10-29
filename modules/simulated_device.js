@@ -17,13 +17,28 @@ export const isSimulatedWifi = (ssid, password) => ssid === SIMULATED_SSID && pa
 
 // The vector maps on the simulated SD card: name => { size, created, bounds }, kept while the app runs
 const maps = new Map();
+// Maps whose upload was not finished: name => { size (on the card), total, created }
+const partials = new Map();
 
-export const clearSimulatedMaps = () => maps.clear();
+// the start of a map with its size and creation date in the header (MAP_CATALOG_HEADER_START of the firmware)
+const HEADER_START = 44;
+
+export const clearSimulatedMaps = () => {
+    maps.clear();
+    partials.clear();
+};
 
 const mapName = (path) => {
     const name = path.slice("/sd/MAPS/".length).toLowerCase();
     return path.toUpperCase().startsWith("/SD/MAPS/") && isCardName(name) ? name : null;
 };
+
+const partialList = () => [...partials].map(([file, { size, total, created }]) => ({
+    file,
+    size,
+    total: size >= HEADER_START ? total : 0,
+    created: size >= HEADER_START ? created : 0,
+}));
 
 const mapList = () => [...maps].map(([file, { size, created, bounds }], index, all) => ({
     file,
@@ -37,22 +52,24 @@ const json = (value) => ({ status: 200, text: JSON.stringify(value) });
 const empty = (status) => ({ status, text: "" });
 
 // Returns { status, text } for a request to the simulated device. A map that is uploaded (PUT /sd/MAPS/{name}.map)
-// needs map: { size, created, bounds } of its header, the simulation does not read the file.
-export const simulatedResponse = (method, path, { map } = {}) => {
+// needs map: { size, created, bounds } of its header, the simulation does not read the file. range is the
+// Content-Range { start, end, total } of the request, received the bytes that arrived when the connection broke
+// (status 0 then), like on the firmware the card keeps them.
+export const simulatedResponse = (method, path, { map, range, received } = {}) => {
 
     const usedByMaps = [...maps.values()].reduce((sum, entry) => sum + entry.size, 0);
     if (method === "GET" && path === "/api/info") {
         return json({
             id: "IndiaNavi-7A21",
             firmware: "1.2.3",
-            api: 2,
+            api: 3,
             ota: true,
             vector_maps: true,
             sd: { present: true, free: SD_FREE - usedByMaps, total: SD_TOTAL },
         });
     }
     if (method === "GET" && path === "/api/maps") {
-        return json({ maps: mapList() });
+        return json({ maps: mapList(), partial: partialList() });
     }
     const name = mapName(path);
     // a file directly in MAPS has to be a map with an 8.3 name, as on the firmware
@@ -64,14 +81,30 @@ export const simulatedResponse = (method, path, { map } = {}) => {
         if (!map) {
             return empty(400);
         }
-        if (map.size + 32768 > SD_FREE - usedByMaps + (maps.get(name)?.size ?? 0)) {
+        const length = range ? range.end - range.start + 1 : map.size;
+        if (length + 32768 > SD_FREE - usedByMaps) {
             return empty(507);
         }
-        maps.set(name, { size: map.size, created: map.created, bounds: map.bounds });
-        return empty(204);
+        const partial = partials.get(name)?.size ?? 0;
+        if (range && range.start > 0 && partial !== range.start) {
+            return { status: 416, text: `the card has ${partial} bytes of the file` };
+        }
+        const arrived = Math.min(received ?? length, length);
+        const size = (range?.start ?? 0) + arrived;
+        if (arrived === length && size === map.size) {
+            partials.delete(name);
+            maps.set(name, { size: map.size, created: map.created, bounds: map.bounds });
+            return empty(204);
+        }
+        // only parts of maps are kept, as on the firmware
+        if (range) {
+            partials.set(name, { size, total: range.total, created: map.created });
+        }
+        return arrived === length ? empty(204) : { status: 0, text: "connection lost" };
     }
     if (method === "DELETE" && name) {
-        return empty(maps.delete(name) ? 204 : 404);
+        const deleted = maps.delete(name);
+        return empty(partials.delete(name) || deleted ? 204 : 404);
     }
     // no tiles on the card yet
     if (method === "GET" && path.startsWith("/sd/")) {

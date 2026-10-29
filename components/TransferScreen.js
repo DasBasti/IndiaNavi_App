@@ -19,6 +19,7 @@ import {
   readFirmware,
   sendMap,
   supportsMaps,
+  supportsResume,
   transferToDevice,
   updateFirmware,
 } from '../modules/device_transfer';
@@ -30,6 +31,7 @@ import {
 } from '../modules/indianavi-wifi';
 import { cardName } from '../modules/map_catalog';
 import { displayName } from '../modules/map_listing';
+import { DEFAULT_UPLOAD_RATE, measuredRate, minutesFor, resumeOffset } from '../modules/map_upload';
 import { listStoredTiles, listTileFiles } from '../modules/sd_card';
 import { mapFile } from '../modules/vector_maps';
 import { SIMULATED_BASE, isSimulatedWifi } from '../modules/simulated_device';
@@ -40,11 +42,11 @@ const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 // the card needs some space next to a map while it is written
 const MAP_SPACE_RESERVE = 1024 * 1024;
 
-const mapProgressText = ({ name, sent, total, started }) => {
+// the time that is left from the rate of this upload, from the rate of the uploads before at its start
+const mapProgressText = ({ name, sent, total, started, from }, rate) => {
   const seconds = (Date.now() - started) / 1000;
-  const rate = seconds > 5 && sent > 0 ? sent / seconds : 0;
-  const left = rate > 0 ? `, about ${Math.ceil((total - sent) / rate / 60)} min left` : '';
-  return `${name}: ${megabytes(sent)} of ${megabytes(total)}${left}`;
+  const current = seconds > 10 && sent > from ? (sent - from) / seconds : rate;
+  return `${name}: ${megabytes(sent)} of ${megabytes(total)}, about ${minutesFor(total - sent, current)} min left`;
 };
 
 // the screen stays on while files are sent, it takes some minutes
@@ -88,9 +90,11 @@ const progressText = (progress) => {
 // soon as the device is connected.
 // device holds the saved connection: { mode: 'accessPoint' | 'router', ssid, password, address }
 // maps are the vector maps for the IndiaNavi (opened maps of vector_maps.js), cardMaps their names on the SD card:
-// { [name on the phone]: 'rheinl01.map' }, onCardMapsChange gets a function that changes the names.
+// { [name on the phone]: 'rheinl01.map' }, onCardMapsChange gets a function that changes the names. uploadRate is the
+// measured speed of map uploads in bytes per second (undefined before the first), onUploadRateChange gets a new one.
 export default function TransferScreen({
-  files, autoStart, device, onDeviceChange, onTransferred, maps = [], cardMaps = {}, onCardMapsChange, onBack,
+  files, autoStart, device, onDeviceChange, onTransferred, maps = [], cardMaps = {}, onCardMapsChange, uploadRate,
+  onUploadRateChange, onBack,
 }) {
   const [mode, setMode] = useState(device.mode ?? 'accessPoint');
   const [ssid, setSsid] = useState(device.ssid ?? '');
@@ -115,6 +119,8 @@ export default function TransferScreen({
   const autoStartPending = useRef(autoStart);
   // the vector maps on the SD card of the connected device, null until they are read
   const [deviceMaps, setDeviceMaps] = useState(null);
+  // the maps whose upload was not finished: [{ file, size, total, created }]
+  const [partialMaps, setPartialMaps] = useState([]);
   // { name, sent, total, started } while a map is sent
   const [mapUpload, setMapUpload] = useState(null);
   // name of the map on the card that waits for the confirmation to be deleted
@@ -273,9 +279,12 @@ export default function TransferScreen({
   // the maps on the card are read when the device is connected
   const loadDeviceMaps = async (base) => {
     try {
-      setDeviceMaps(await getDeviceMaps(base));
+      const { maps: onCard, partial } = await getDeviceMaps(base);
+      setDeviceMaps(onCard);
+      setPartialMaps(partial);
     } catch (e) {
       setDeviceMaps(null);
+      setPartialMaps([]);
       setError(`Could not read the maps of the IndiaNavi: ${e.message}`);
     }
   };
@@ -291,6 +300,19 @@ export default function TransferScreen({
   const cardEntry = (map) => deviceMaps?.find((entry) => entry.file === cardMaps[map.name]);
   const isOnCard = (map) => cardEntry(map)?.size === map.source.size;
   const missingMaps = maps.filter((map) => !isOnCard(map));
+
+  // where the upload of a map continues: the part of an earlier upload of the same map on the card, or 0
+  const resumable = connection !== null && supportsResume(connection.info);
+  const startOf = (map) => (resumable
+    ? resumeOffset(
+      { size: map.source.size, created: map.header.created },
+      partialMaps.find((entry) => entry.file === cardMaps[map.name])
+    )
+    : 0);
+  const rate = uploadRate ?? DEFAULT_UPLOAD_RATE;
+  const missingBytes = missingMaps.reduce((sum, map) => sum + map.source.size - startOf(map), 0);
+  // bytes of the running upload, to measure the speed
+  const uploadStats = useRef(null);
 
   // the names on the card, with the ones given while several maps are sent one after the other
   const latestCardMaps = useRef(cardMaps);
@@ -308,34 +330,54 @@ export default function TransferScreen({
   const sendVectorMap = async (map) => {
     const file = cardNameOf(map.name);
     const size = map.source.size;
+    const start = startOf(map);
     const controller = new AbortController();
     abort.current = controller;
     setError(null);
     setResult(null);
     try {
-      // the card has to hold the new map before an old version of it is removed
+      // the card has to hold the rest of the map before an old version of it is removed
       const info = await getDeviceInfo(connection.base, controller.signal);
-      if (size + MAP_SPACE_RESERVE > info.sd.free) {
-        throw new Error(`${megabytes(size)} are needed, the SD card has ${megabytes(info.sd.free)} free`);
+      if (size - start + MAP_SPACE_RESERVE > info.sd.free) {
+        throw new Error(`${megabytes(size - start)} are needed, the SD card has ${megabytes(info.sd.free)} free`);
       }
       onCardMapsChange((current) => ({ ...current, [map.name]: file }));
-      setMapUpload({ name: displayName(map.name), sent: 0, total: size, started: Date.now() });
+      const started = Date.now();
+      uploadStats.current = { started, from: start, sent: start };
+      setMapUpload({ name: displayName(map.name), sent: start, total: size, started, from: start });
       await sendMap(
         connection.base,
         { uri: mapFile(map.name).uri, size, created: map.header.created, bounds: map.header.bounds },
         file,
         {
           signal: controller.signal,
-          onProgress: ({ bytesSent }) => setMapUpload((current) => current && { ...current, sent: bytesSent }),
+          resumable,
+          start,
+          onProgress: ({ bytesSent }) => {
+            uploadStats.current = { ...uploadStats.current, sent: bytesSent };
+            setMapUpload((current) => current && { ...current, sent: bytesSent });
+          },
         }
       );
       setConnection({ ...connection, info: await getDeviceInfo(connection.base) });
       return true;
     } catch (e) {
-      setError(controller.signal.aborted ? 'Sending the map was cancelled.' : `Could not send ${displayName(map.name)}: ${e.message}`);
+      const kept = resumable ? ' The part that was sent stays on the card, Continue sends the rest.' : '';
+      setError(controller.signal.aborted
+        ? `Sending the map was cancelled.${kept}`
+        : `Could not send ${displayName(map.name)}: ${e.message}.${kept}`);
       loadDeviceMaps(connection.base);
       return false;
     } finally {
+      // the speed of the device for the next estimates, the simulated device has none
+      const stats = uploadStats.current;
+      if (stats && connection.base !== SIMULATED_BASE) {
+        const measured = measuredRate(uploadRate, stats.sent - stats.from, (Date.now() - stats.started) / 1000);
+        if (measured !== uploadRate) {
+          onUploadRateChange(measured);
+        }
+      }
+      uploadStats.current = null;
       abort.current = null;
       setMapUpload(null);
     }
@@ -399,7 +441,7 @@ export default function TransferScreen({
         text="Sending the vector map"
         done={mapUpload?.sent ?? 0}
         total={mapUpload?.total ?? 0}
-        detail={mapUpload && mapProgressText(mapUpload)}
+        detail={mapUpload && mapProgressText(mapUpload, rate)}
         onCancel={() => abort.current?.abort()}
       />
       <ProgressWindow
@@ -545,24 +587,34 @@ export default function TransferScreen({
                 {maps.map((map) => {
                   const card = cardEntry(map);
                   const sent = isOnCard(map);
+                  const start = startOf(map);
+                  const size = map.source.size;
                   return (
                     <View key={map.name} style={styles.mapRow}>
                       <View style={styles.mapText}>
                         <Text style={styles.text} numberOfLines={1}>{displayName(map.name)}</Text>
                         <Text style={styles.small}>
-                          {megabytes(map.source.size)}
-                          {sent ? ` · on the card as ${card.file}${card.used ? '' : ', replaced by a newer map'}` : ''}
+                          {megabytes(size)}
+                          {sent && ` · on the card as ${card.file}${card.used ? '' : ', replaced by a newer map'}`}
+                          {!sent && start > 0 && ` · ${megabytes(start)} are on the card`}
+                          {!sent && ` · about ${minutesFor(size - start, rate)} min`}
                         </Text>
                       </View>
                       {!sent && (
-                        <Button title="Send" onPress={() => sendVectorMap(map)} disabled={busy || deviceMaps === null} variant="secondary" compact />
+                        <Button
+                          title={start > 0 ? 'Continue' : 'Send'}
+                          onPress={() => sendVectorMap(map)}
+                          disabled={busy || deviceMaps === null}
+                          variant="secondary"
+                          compact
+                        />
                       )}
                     </View>
                   );
                 })}
                 {missingMaps.length > 1 && (
                   <Button
-                    title={`Send ${missingMaps.length} maps (${megabytes(missingMaps.reduce((sum, map) => sum + map.source.size, 0))})`}
+                    title={`Send ${missingMaps.length} maps (${megabytes(missingBytes)}, about ${minutesFor(missingBytes, rate)} min)`}
                     icon="SD"
                     onPress={() => sendMissingMaps(missingMaps)}
                     disabled={busy || deviceMaps === null}
@@ -571,7 +623,7 @@ export default function TransferScreen({
 
                 <Text style={styles.text}>On the SD card</Text>
                 {deviceMaps === null && <Hint>Reading the maps of the IndiaNavi…</Hint>}
-                {deviceMaps?.length === 0 && <Hint>There are no vector maps on the SD card.</Hint>}
+                {deviceMaps?.length === 0 && partialMaps.length === 0 && <Hint>There are no vector maps on the SD card.</Hint>}
                 {deviceMaps?.map((entry) => {
                   const phone = Object.entries(cardMaps).find(([, card]) => card === entry.file)?.[0];
                   return (
@@ -596,9 +648,29 @@ export default function TransferScreen({
                     </View>
                   );
                 })}
+                {partialMaps.map((entry) => (
+                  <View key={`${entry.file} partial`} style={styles.mapRow}>
+                    <View style={styles.mapText}>
+                      <Text style={styles.text} numberOfLines={1}>{entry.file}</Text>
+                      <Text style={styles.small}>
+                        not finished: {megabytes(entry.size)}{entry.total > 0 ? ` of ${megabytes(entry.total)}` : ''} on the card
+                      </Text>
+                    </View>
+                    {deletingMap === entry.file ? (
+                      <>
+                        <Button title="Delete" onPress={() => removeDeviceMap(entry.file)} variant="danger" compact />
+                        <Button title="Keep" onPress={() => setDeletingMap(null)} variant="plain" compact />
+                      </>
+                    ) : (
+                      <Button title="Delete" onPress={() => setDeletingMap(entry.file)} disabled={busy} variant="plain" compact />
+                    )}
+                  </View>
+                ))}
                 <Hint>
                   The IndiaNavi draws the maps that cover the screen, at most 4, and a newer map of a region replaces an
-                  older one. A map of some 100 MB takes several minutes, keep the charger plugged in.
+                  older one. Keep the charger plugged in while maps are sent. The times are estimated from
+                  {uploadRate ? ` the maps sent before (${Math.round(uploadRate / 1024)} kB/s).` : ' the speed of tiles (180 kB/s).'}
+                  {resumable && ' A map that was interrupted is continued where it stopped.'}
                 </Hint>
               </>
             )}

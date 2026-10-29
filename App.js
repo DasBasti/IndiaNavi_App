@@ -635,6 +635,8 @@ export default function App() {
             maps={vectorMaps.maps}
             cardMaps={cardMaps}
             onCardMapsChange={(update) => changeSettings((current) => ({ cardMaps: update(current.cardMaps ?? {}) }))}
+            uploadRate={Number.isFinite(settings.mapUploadRate) ? settings.mapUploadRate : undefined}
+            onUploadRateChange={(mapUploadRate) => changeSettings({ mapUploadRate })}
             onBack={() => setScreen(transferBack)}
           />
         ) : (
