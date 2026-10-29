@@ -12,13 +12,15 @@ import RecordingsScreen from './components/RecordingsScreen';
 import TracksScreen from './components/TracksScreen';
 import TransferScreen from './components/TransferScreen';
 import MapSearch from './components/MapSearch';
+import MapsScreen from './components/MapsScreen';
 import MapView, { areaColor } from './components/MapView';
+import NaviView from './components/NaviView';
 import { Badge, Card, Hint, Message, PaletteStrip, ProgressWindow } from './components/ui';
 
 import { isFileUrl, pickGpxFile, readGpxFile } from './modules/gpx_file';
 import { parse } from './modules/gpx_parser';
 import { DEFAULT_FILTER, isFilter } from './modules/map_color';
-import { deleteTiles, deleteTrack, listSdCardFiles, trackFile, writeFile } from './modules/sd_card';
+import { deleteTiles, deleteTrack, hasFile, listSdCardFiles, tileFile, trackFile, writeFile } from './modules/sd_card';
 import { autoConnect } from './modules/ble/background';
 import { getPhonePosition } from './modules/ble/phone_position';
 import { TRACK_COLOR_DEFAULT, TRACK_COLOR_MAX } from './modules/ble/protocol';
@@ -29,11 +31,25 @@ import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
 import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
 import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_library';
 import { trackDeleted as recordingTrackDeleted } from './modules/recording_library';
+import { mapCenter, mapCovers } from './modules/mapsforge';
+import { displayName } from './modules/map_listing';
+import { NAVI_ZOOMS } from './modules/navi_screen';
+import { listMaps, openMapFile } from './modules/vector_maps';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 // Dahner Felsenland, shown as long as there is no track, the map was not moved and the phone has no position
 const DEFAULT_VIEW = { lon: 7.765, lat: 49.143, zoom: 13 };
+
+// A raw tile of the converter on the phone, the IndiaNavi shows the tiles where no vector map covers the screen
+const readTile = (tile) => {
+  try {
+    const file = tileFile(tile);
+    return hasFile(file) ? file.bytesSync() : null;
+  } catch {
+    return null;
+  }
+};
 
 const isView = (view) =>
   [view?.lon, view?.lat, view?.zoom].every(Number.isFinite);
@@ -65,15 +81,20 @@ const selectedTrack = (id) => {
 // Tablets in landscape show the map on the left and the controls on the right
 const SIDE_BY_SIDE_WIDTH = 720;
 
-// Tile of the main navigation: icon with a label below
-const NavTile = ({ label, children, onPress, disabled }) => (
+// Tile of the main navigation: icon with a label below. The tile of the mode the main screen shows is selected.
+const NavTile = ({ label, children, onPress, disabled, selected }) => (
   <Pressable
     onPress={onPress}
     disabled={disabled}
     accessibilityRole="button"
-    style={({ pressed }) => [styles.navTile, disabled ? styles.navDisabled : pressed ? styles.navPressed : shadow]}>
+    accessibilityState={{ selected: !!selected }}
+    style={({ pressed }) => [
+      styles.navTile,
+      selected && styles.navSelected,
+      disabled ? styles.navDisabled : pressed ? styles.navPressed : shadow,
+    ]}>
     <View style={styles.navIcon}>{children}</View>
-    <Text style={styles.navLabel}>{label}</Text>
+    <Text style={styles.navLabel} numberOfLines={1} adjustsFontSizeToFit>{label}</Text>
   </Pressable>
 );
 
@@ -82,11 +103,12 @@ export default function App() {
   const tileUrlTemplate = settings.tileUrl ?? DEFAULT_TILE_URL;
   const filter = isFilter(settings.filter) ? settings.filter : DEFAULT_FILTER;
   // the track looks like on the IndiaNavi, the color comes from it over Bluetooth
-  const trackColor = displayColor(
-    Number.isInteger(settings.trackColor) && settings.trackColor >= 0 && settings.trackColor <= TRACK_COLOR_MAX
-      ? settings.trackColor
-      : TRACK_COLOR_DEFAULT
-  );
+  const trackInk = Number.isInteger(settings.trackColor) && settings.trackColor >= 0 && settings.trackColor <= TRACK_COLOR_MAX
+    ? settings.trackColor
+    : TRACK_COLOR_DEFAULT;
+  const trackColor = displayColor(trackInk);
+  const mode = settings.mode === 'converter' ? 'converter' : 'navi';
+  const naviZoom = Number.isInteger(settings.naviZoom) && NAVI_ZOOMS[settings.naviZoom] ? settings.naviZoom : 0;
   // { id, name, text, lines, bounds } of the selected track
   const [track, setTrack] = useState(() => selectedTrack(settings.trackId));
   // { lon, lat, zoom } of the map, the last position is remembered
@@ -96,8 +118,11 @@ export default function App() {
   // set when the map is moved, a position of the phone that arrives later does not move it back
   const viewMoved = useRef(false);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
-  // 'main', 'tracks', 'filter', 'transfer', 'bluetooth' or 'recordings'
+  // 'main', 'tracks', 'filter', 'maps', 'transfer', 'connection' or 'recordings'. The main screen shows the IndiaNavi
+  // as it draws the vector map, or the converter of the tiles for the device (settings.mode).
   const [screen, setScreen] = useState('main');
+  // the screen the file transfer goes back to
+  const [transferBack, setTransferBack] = useState('main');
   // the transfer screen sends the prepared files as soon as it is connected
   const [autoTransfer, setAutoTransfer] = useState(false);
   const [error, setError] = useState(null);
@@ -108,6 +133,8 @@ export default function App() {
   // { files, bytes, failed } when the files are ready for the transfer
   const [prepared, setPrepared] = useState(null);
   const abort = useRef(null);
+  // the vector maps the simulated IndiaNavi draws: { maps, errors } of the checked files
+  const [vectorMaps, setVectorMaps] = useState({ maps: [], errors: [] });
 
   // a track decides the area, without a track it is around the middle of the map
   const bounds = useMemo(
@@ -130,12 +157,64 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
+  // changes are the changed settings, or a function that returns them from the current settings
   const changeSettings = useCallback((changes) => {
     setSettings((current) => {
-      const newSettings = { ...current, ...changes };
+      const newSettings = { ...current, ...(typeof changes === 'function' ? changes(current) : changes) };
       saveSettings(newSettings);
       return newSettings;
     });
+  }, []);
+
+  // the checked vector maps are the maps for the IndiaNavi: the simulation draws them and they are sent to the
+  // device. Settings of older versions had one selected map.
+  const checkedMaps = useMemo(
+    () => (Array.isArray(settings.vectorMaps) ? settings.vectorMaps : settings.vectorMap ? [settings.vectorMap] : []),
+    [settings.vectorMaps, settings.vectorMap]
+  );
+  // names of the maps on the SD card of the IndiaNavi: { [name on the phone]: 'rheinl01.map' }
+  const cardMaps = settings.cardMaps ?? {};
+  const changeCheckedMaps = useCallback(
+    (maps) => changeSettings({ vectorMaps: maps, vectorMap: undefined }),
+    [changeSettings]
+  );
+
+  // the checked maps are open while they are checked. Without a track the position moves onto the maps when it is
+  // outside of all of them, so the simulated IndiaNavi shows something.
+  const checkedKey = checkedMaps.join('\n');
+  const hasTrackRef = useRef(false);
+  hasTrackRef.current = track !== null;
+  useEffect(() => {
+    const maps = [];
+    const errors = [];
+    for (const name of checkedKey ? checkedKey.split('\n') : []) {
+      try {
+        maps.push(openMapFile(name));
+      } catch (e) {
+        errors.push(`${displayName(name)}: ${e.message}`);
+      }
+    }
+    setVectorMaps({ maps, errors });
+    const { lat, lon } = latestView.current;
+    if (maps.length > 0 && !hasTrackRef.current && !maps.some((map) => mapCovers(map.header, lat, lon))) {
+      const center = mapCenter(maps[0].header);
+      const newView = { ...latestView.current, lat: center.lat, lon: center.lon };
+      viewMoved.current = true;
+      setView(newView);
+      changeSettings({ view: newView });
+    }
+    return () => maps.forEach((map) => map.close());
+  }, [checkedKey, changeSettings]);
+
+  // the first map on the phone is checked if no map was ever checked
+  useEffect(() => {
+    if (!Array.isArray(settings.vectorMaps) && !settings.vectorMap) {
+      const first = listMaps()[0];
+      if (first) {
+        changeCheckedMaps([first.name]);
+      }
+    }
+    // only when the app starts, unchecked maps stay unchecked
   }, []);
 
   const changeView = useCallback((newView) => {
@@ -277,9 +356,10 @@ export default function App() {
     }
   };
 
-  // the Android back button leaves the tracks and filter screen, the transfer and Bluetooth screens handle it themselves
+  // the Android back button leaves the tracks, filter and maps screen, the transfer and Bluetooth screens handle it
+  // themselves
   useEffect(() => {
-    if (screen !== 'filter' && screen !== 'tracks') {
+    if (screen !== 'filter' && screen !== 'tracks' && screen !== 'maps') {
       return;
     }
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -349,16 +429,13 @@ export default function App() {
         <NavTile label="Tracks" onPress={() => setScreen('tracks')} disabled={loading}>
           <Icon name="path" size={32} />
         </NavTile>
-        <NavTile label="Filter" onPress={() => setScreen('filter')} disabled={loading}>
-          <PaletteStrip size={8} />
+        <NavTile label="IndiaNavi" onPress={() => changeSettings({ mode: 'navi' })} disabled={loading} selected={mode === 'navi'}>
+          <Icon name="norden" size={32} />
         </NavTile>
-        <NavTile label="Device" onPress={() => {
-          setAutoTransfer(false);
-          setScreen('transfer');
-        }} disabled={loading}>
-          <Icon name={settings.deviceTrackId ? 'WIFI_3' : 'WIFI_0'} size={32} />
+        <NavTile label="Converter" onPress={() => changeSettings({ mode: 'converter' })} disabled={loading} selected={mode === 'converter'}>
+          <Icon name="SD" size={32} />
         </NavTile>
-        <NavTile label="Bluetooth" onPress={() => setScreen('bluetooth')} disabled={loading}>
+        <NavTile label="Connection" onPress={() => setScreen('connection')} disabled={loading}>
           <BluetoothIcon />
         </NavTile>
       </View>
@@ -376,7 +453,49 @@ export default function App() {
     </>
   );
 
-  const mainMap = (
+  const naviMap = vectorMaps.maps.length > 0 ? (
+    <View style={styles.navi}>
+      <NaviView
+        maps={vectorMaps.maps}
+        readTile={readTile}
+        view={view}
+        onViewChange={changeView}
+        zoomIndex={naviZoom}
+        onZoomChange={(index) => changeSettings({ naviZoom: index })}
+        track={track}
+        fitKey={track?.id}
+        trackColor={trackInk}
+      />
+    </View>
+  ) : (
+    <View style={styles.noMap}>
+      <Icon name="noSD" size={48} />
+      <Text style={styles.noMapTitle}>No vector map</Text>
+      {vectorMaps.errors.map((text) => <Message key={text} tone="red" icon="noSD">{text}</Message>)}
+      <Hint style={styles.noMapHint}>
+        The IndiaNavi draws its map from a Mapsforge vector map. Download the map of your region to see the device
+        here as it shows your track.
+      </Hint>
+      <Button title="Download a vector map" icon="SD" onPress={() => setScreen('maps')} />
+    </View>
+  );
+
+  const naviBottom = (
+    <View style={styles.row}>
+      <Icon name="SD" size={32} />
+      <Text style={styles.mapName} numberOfLines={1}>
+        {vectorMaps.maps.length === 0
+          ? 'No vector map checked'
+          : vectorMaps.maps.length === 1
+            ? displayName(vectorMaps.maps[0].name)
+            : `${vectorMaps.maps.length} vector maps`}
+      </Text>
+      <Button title="Maps" onPress={() => setScreen('maps')} variant="plain" compact />
+      <Button title="Colors" onPress={() => setScreen('filter')} variant="plain" compact />
+    </View>
+  );
+
+  const mainMap = mode === 'navi' ? naviMap : (
     <View style={styles.map}>
       <MapView
         view={view}
@@ -392,7 +511,7 @@ export default function App() {
     </View>
   );
 
-  const mainBottom = (
+  const mainBottom = mode === 'navi' ? naviBottom : (
     <>
       {!track && (
         <Hint>Move the map to put the cross where you need tiles, or open a GPX track.</Hint>
@@ -417,6 +536,15 @@ export default function App() {
         </Text>
       </Card>
 
+      <Pressable
+        onPress={() => setScreen('filter')}
+        disabled={loading}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.filterButton, loading ? styles.navDisabled : pressed ? styles.navPressed : shadow]}>
+        <PaletteStrip size={8} />
+        <Text style={styles.navLabel}>Filter</Text>
+      </Pressable>
+
       <View style={styles.row}>
         <Text style={styles.marginText}>Margin: {margin} tiles</Text>
         <Button title="−" onPress={() => changeMargin(-1)} disabled={loading || margin === 0} variant="plain" compact />
@@ -440,6 +568,7 @@ export default function App() {
       {prepared && !loading && (
         <Button title="Transfer to IndiaNavi" icon="WIFI_3" variant="secondary" onPress={() => {
           setAutoTransfer(true);
+          setTransferBack('main');
           setScreen('transfer');
         }} />
       )}
@@ -468,6 +597,7 @@ export default function App() {
           />
         ) : screen === 'filter' ? (
           <FilterScreen
+            mode={mode === 'navi' ? 'vector' : 'tiles'}
             filter={filter}
             tileUrlTemplate={tileUrlTemplate}
             startTile={previewTile()}
@@ -475,13 +605,20 @@ export default function App() {
             onTileUrlChange={changeTileUrl}
             onBack={() => setScreen('main')}
           />
-        ) : screen === 'bluetooth' ? (
+        ) : screen === 'maps' ? (
+          <MapsScreen
+            checked={checkedMaps}
+            onCheckedChange={changeCheckedMaps}
+            onBack={() => setScreen('main')}
+          />
+        ) : screen === 'connection' ? (
           <BluetoothScreen
             device={settings.bleDevice}
             onDeviceChange={(bleDevice) => changeSettings({ bleDevice })}
             onTrackColorChange={(newTrackColor) => changeSettings({ trackColor: newTrackColor })}
             onOpenWifi={() => {
               setAutoTransfer(false);
+              setTransferBack('connection');
               setScreen('transfer');
             }}
             onOpenRecordings={() => setScreen('recordings')}
@@ -494,9 +631,10 @@ export default function App() {
             onShowTrack={selectTrack}
             onOpenWifi={() => {
               setAutoTransfer(false);
+              setTransferBack('recordings');
               setScreen('transfer');
             }}
-            onBack={() => setScreen('bluetooth')}
+            onBack={() => setScreen('connection')}
           />
         ) : screen === 'transfer' ? (
           <TransferScreen
@@ -505,7 +643,12 @@ export default function App() {
             device={settings.device ?? {}}
             onDeviceChange={(device) => changeSettings({ device })}
             onTransferred={() => changeSettings({ deviceTrackId: track?.id })}
-            onBack={() => setScreen('main')}
+            maps={vectorMaps.maps}
+            cardMaps={cardMaps}
+            onCardMapsChange={(update) => changeSettings((current) => ({ cardMaps: update(current.cardMaps ?? {}) }))}
+            uploadRate={Number.isFinite(settings.mapUploadRate) ? settings.mapUploadRate : undefined}
+            onUploadRateChange={(mapUploadRate) => changeSettings({ mapUploadRate })}
+            onBack={() => setScreen(transferBack)}
           />
         ) : (
           sideBySide ? (
@@ -585,7 +728,8 @@ const styles = StyleSheet.create({
   navLabel: {
     fontFamily: font.mono,
     fontWeight: 'bold',
-    fontSize: 13,
+    // CONNECTION fits a quarter of a small phone
+    fontSize: 11,
     textTransform: 'uppercase',
     color: colors.ink,
   },
@@ -612,6 +756,50 @@ const styles = StyleSheet.create({
   },
   controlsContent: {
     gap: 12,
+  },
+  navSelected: {
+    backgroundColor: colors.green,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.yellow,
+    marginRight: SHADOW,
+    marginBottom: SHADOW,
+  },
+  navi: {
+    flex: 1,
+  },
+  noMap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: PAGE_PADDING,
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    borderStyle: 'dashed',
+  },
+  noMapTitle: {
+    fontFamily: font.mono,
+    fontWeight: 'bold',
+    fontSize: 18,
+    textTransform: 'uppercase',
+    color: colors.ink,
+  },
+  noMapHint: {
+    textAlign: 'center',
+  },
+  mapName: {
+    flexShrink: 1,
+    fontFamily: font.mono,
+    fontWeight: 'bold',
+    color: colors.ink,
   },
   map: {
     flex: 1,

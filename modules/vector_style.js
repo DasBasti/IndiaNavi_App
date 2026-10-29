@@ -1,7 +1,7 @@
-// The drawing style of the vector map (MAPS/map.map), a copy of the style table of the firmware
-// (lib/mapsforge-rs/src/style.rs, see docs/COLOR_SCHEMA.md there). The info pages of the app show from it what the
-// IndiaNavi draws. Names, numbers and the order of the rules are the same as in style.rs, vector_style.test.js
-// compares them with the Rust file.
+// The drawing style of the vector maps (the .map files in MAPS), a copy of the style of the firmware: inks, patterns
+// and draw orders of lib/mapsforge-rs/src/style.rs, the rules of its built-in stylesheet styles/hiking.style (see
+// docs/COLOR_SCHEMA.md there). The info pages of the app show from it what the IndiaNavi draws. Names, numbers and
+// the order of the rules are the same as there, vector_style.test.js compares them with the files of the firmware.
 
 // Inks of the display, the numbers of the firmware's color_t
 export const BLACK = 0;

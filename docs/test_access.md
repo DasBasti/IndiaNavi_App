@@ -25,6 +25,11 @@ with the **Files** and **Firmware** sections below it.
   progress and finishes with `Done. N files (…) sent, 0 tiles were already on the IndiaNavi.`
 - **Update all tiles on the IndiaNavi** works the same way for the tiles stored on the phone.
 - **Update firmware** accepts a firmware file and ends with the message that the IndiaNavi restarts.
+- **Vector maps** lists the maps checked on the Maps screen and the maps on the simulated SD card. **Send** stores
+  a map on the simulated card (only its size, date and area, nothing is copied) and shows its progress, **Delete**
+  removes it. A newer map of the same region shows the older one as replaced. The simulated card keeps the maps
+  while the app runs. Cancelling a map that is sent keeps its part on the simulated card like the device does, the map then
+  shows **Continue**, which sends the rest.
 
 Nothing is sent over the network, the files are not copied anywhere.
 

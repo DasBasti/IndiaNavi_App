@@ -360,7 +360,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
         detail={update && updatePhaseText(update)}
         onCancel={() => updateAbort.current?.abort()}
       />
-      <ScreenHeader title="Bluetooth" onBack={onBack} disabled={locked} />
+      <ScreenHeader title="Connection" onBack={onBack} disabled={locked} />
 
       <ScrollView contentContainerStyle={styles.content}>
         {!supported && (
@@ -373,6 +373,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
 
         {!connection ? (
           <>
+            <SectionTitle>Bluetooth</SectionTitle>
             <Hint>
               The IndiaNavi is always visible over Bluetooth while it is switched on. The first time, Android asks for a
               code: type in the six digits shown in the box on the display of the IndiaNavi. A new phone can pair for two
@@ -412,6 +413,13 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                 <Button title="Connect" onPress={() => connect(entry)} compact />
               </Card>
             ))}
+
+            <SectionTitle>WiFi</SectionTitle>
+            <Hint>
+              While it is charging, the IndiaNavi opens its own WiFi. Files, recordings and firmware updates go that way,
+              also without Bluetooth.
+            </Hint>
+            <Button title="WiFi transfer" icon="WIFI_3" onPress={onOpenWifi} variant="secondary" />
           </>
         ) : (
           <>

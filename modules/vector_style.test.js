@@ -10,8 +10,10 @@ const {
   styleOf, tint, widthAt,
 } = vs;
 
-// The style table of the firmware, next to the app in the IndiaNavi folder
+// The style of the firmware, next to the app in the IndiaNavi folder: inks, patterns and draw orders are in style.rs,
+// the rules in the built-in stylesheet
 const STYLE_RS = new URL('../../IndiaNavi_Firmware/lib/mapsforge-rs/src/style.rs', import.meta.url);
+const STYLESHEET = new URL('../../IndiaNavi_Firmware/lib/mapsforge-rs/styles/hiking.style', import.meta.url);
 
 test('coverage of the patterns', () => {
   assert.equal(coverage(tint(GREEN, P50)), 8);
@@ -95,16 +97,86 @@ const evaluate = (rust) => {
   return new Function(...Object.keys(SCOPE), `return ${js};`)(...Object.values(SCOPE));
 };
 
-const rulesOf = (source, name) => {
-  const block = source.split(`const ${name}: &[Rule] = &[`)[1].split('\n];')[0];
-  return block
-    .split('\n')
-    .map((text) => text.match(/^\s*\("([^"]+)", "([^"]+)", (.*)\),\s*$/))
-    .filter(Boolean)
-    .map(([, key, value, rust]) => [key, value, evaluate(rust)]);
+const INKS = { black: BLACK, white: WHITE, green: GREEN, blue: BLUE, red: RED, yellow: YELLOW, orange: vs.ORANGE };
+const PATTERNS = { solid: SOLID, 50: P50, 25: P25, 75: P75, 12: P12, 6: P6, hlines: HLINES, diag: DIAG };
+
+// A paint of the stylesheet: 'ink', 'ink/pattern' (on the background), 'ink/pattern/ink2' or 'ink/pattern/clear'
+const paintOf = (text) => {
+  const [a, pattern, b] = text.split('/');
+  if (pattern === undefined) {
+    return solid(INKS[a]);
+  }
+  if (b === undefined) {
+    return tint(INKS[a], PATTERNS[pattern]);
+  }
+  return b === 'clear' ? overlay(INKS[a], PATTERNS[pattern]) : mix(INKS[a], INKS[b], PATTERNS[pattern]);
 };
 
-test('the rules are the same as in style.rs of the firmware', { skip: !existsSync(STYLE_RS) && 'no firmware' }, () => {
+// The rules of the stylesheet (src/stylesheet.rs) as [key, value pattern, style], separately for ways and POIs
+const stylesheetRules = (text) => {
+  const rules = { way: [], poi: [] };
+  for (const line of text.split('\n').map((raw) => raw.split('#')[0].trim())) {
+    const match = line.match(/^(way|poi) ([^=\s]+)=(\S+) : (\w+)(.*)$/);
+    if (!match) {
+      continue;
+    }
+    const [, type, key, value, kind, props] = match;
+    let fields = null;
+    if (kind !== 'hide') {
+      fields = {
+        line: {},
+        area: { kind: 'area' },
+        symbol: { kind: 'poi', order: vs.order.POI },
+        label: { kind: 'poi', order: vs.order.POI, label: 1 },
+      }[kind];
+      for (const word of props.trim().split(/\s+/).filter(Boolean)) {
+        const [name, setting] = word.split('=');
+        switch (name) {
+          case 'color':
+            fields.color = paintOf(setting);
+            break;
+          case 'width':
+          case 'radius':
+            fields.width = Number(setting);
+            break;
+          case 'order':
+            fields.order = vs.order[setting.toUpperCase()] ?? Number(setting);
+            break;
+          case 'outline':
+            fields.outline = setting === 'none' ? null : INKS[setting];
+            break;
+          case 'shrink':
+            fields.shrink = true;
+            break;
+          case 'min_zoom':
+            fields.minZoom = Number(setting);
+            break;
+          case 'rank':
+            fields.label = Number(setting);
+            break;
+          case 'casing':
+            fields.casing = Number(setting);
+            break;
+          case 'symbol':
+            fields.symbol = setting;
+            break;
+          default:
+            throw new Error(`unknown property ${name} in: ${line}`);
+        }
+      }
+    }
+    rules[type].push([key, value, fields && vs.style(fields)]);
+  }
+  return rules;
+};
+
+test('the rules are the same as in the stylesheet of the firmware', { skip: !existsSync(STYLESHEET) && 'no firmware' }, () => {
+  const rules = stylesheetRules(readFileSync(STYLESHEET, 'utf8'));
+  assert.deepEqual(rules.way, WAY_RULES);
+  assert.deepEqual(rules.poi, POI_RULES);
+});
+
+test('the inks, patterns and draw orders are the same as in style.rs of the firmware', { skip: !existsSync(STYLE_RS) && 'no firmware' }, () => {
   const source = readFileSync(STYLE_RS, 'utf8');
   const masks = source.match(/PATTERN_MASKS: \[u16; 8\] = \[([^\]]+)\]/)[1].split(',').map((mask) => Number(mask));
   assert.deepEqual(masks, PATTERN_MASKS);
@@ -112,8 +184,6 @@ test('the rules are the same as in style.rs of the firmware', { skip: !existsSyn
   for (const [, name, rust] of source.matchAll(/^(?:pub )?const ((?!EINK7)[A-Z_]+): (?:u32|u8) = (.+);$/gm)) {
     assert.deepEqual(evaluate(rust), vs[name], name);
   }
-  assert.deepEqual(rulesOf(source, 'WAY_RULES'), WAY_RULES);
-  assert.deepEqual(rulesOf(source, 'POI_RULES'), POI_RULES);
   for (const [, name, value] of source.matchAll(/pub const ([A-Z_]+): u8 = (\d+);/g)) {
     if (name in vs.order) {
       assert.equal(vs.order[name], Number(value), name);
