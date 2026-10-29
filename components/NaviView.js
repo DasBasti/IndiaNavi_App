@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, PanResponder, PixelRatio, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Image, PixelRatio, StyleSheet, Text, View } from 'react-native';
 
 import Button from './Button';
 import { BORDER, colors } from '../theme';
 import { DISPLAY_COLORS } from '../modules/map_color';
 import { NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, renderNaviScreen } from '../modules/navi_screen';
 import { encodePalettePng, pngDataUri } from '../modules/png';
-import { lat2world, lon2world, world2lat, world2lon } from '../modules/tiles';
+import { FramebufferView, dropFrame, setFrame } from '../modules/indianavi-mapsforge';
 
 // the screen is shown with the colors of the display, they are darker than the pure colors
 const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
@@ -15,15 +15,13 @@ const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
 const BEZEL = 10;
 
 // The IndiaNavi on the phone: its map screen as the device draws it from the vector maps (the checked maps, which are
-// also the maps for its SD card). Dragging moves the simulated GPS position, the button switches between the 100 m
-// and the 500 m scale like the button of the device.
+// also the maps for its SD card). The button switches between the 100 m and the 500 m scale like the button of the
+// device.
 // view is { lon, lat } of the position, onViewChange gets the new one. A track (lines) is drawn with its height graph,
 // fitKey moves the position to the start of the track once.
 // readTile reads a raw tile ({ zoom, x, y }) the device would show where no vector map covers the screen.
 export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex, onZoomChange, track, fitKey, trackColor }) {
   const [size, setSize] = useState(null);
-  // display pixels the screen is dragged by the finger, committed to the position when it is released
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const latest = useRef({});
 
   // the display keeps its proportions in the space it gets
@@ -31,27 +29,7 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
   const height = Math.round(width * SCREEN_HEIGHT / SCREEN_WIDTH);
   // phone pixels per display pixel
   const factor = width / SCREEN_WIDTH;
-  latest.current = { view, onViewChange, factor, zoom: NAVI_ZOOMS[zoomIndex].zoom };
-
-  const move = (dx, dy) => {
-    const { view: current, onViewChange: change, factor: f, zoom } = latest.current;
-    setOffset({ x: 0, y: 0 });
-    if ((dx === 0 && dy === 0) || f === 0) {
-      return;
-    }
-    const world = 256 * 2 ** zoom;
-    const x = lon2world(current.lon) - dx / f / world;
-    const y = Math.min(Math.max(lat2world(current.lat) - dy / f / world, 0), 1);
-    change({ ...current, lon: world2lon(x), lat: world2lat(y) });
-  };
-
-  const panResponder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderMove: (event, { dx, dy }) => setOffset({ x: dx, y: dy }),
-    onPanResponderRelease: (event, { dx, dy }) => move(dx, dy),
-    onPanResponderTerminate: () => setOffset({ x: 0, y: 0 }),
-  })).current;
+  latest.current = { view };
 
   // a track that is shown starts at its first point, like a walk does
   const fitted = useRef(null);
@@ -70,10 +48,20 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
     [maps, readTile, view.lat, view.lon, zoomIndex, track, trackColor]
   );
 
-  // the pixels are enlarged before they are shown, so they stay sharp
+  // In a build of the app the pixels go to a native view as they are. Without it (web, Expo Go) they are enlarged into
+  // a PNG, so they stay sharp, which takes a few seconds on a phone.
+  const frameKey = useId();
+  const frames = useRef(0);
+  const version = useMemo(() => {
+    if (FramebufferView) {
+      setFrame(frameKey, screen.fb.pixels, SCREEN_WIDTH, SCREEN_HEIGHT, PALETTE);
+    }
+    return ++frames.current;
+  }, [screen, frameKey]);
+  useEffect(() => () => dropFrame(frameKey), [frameKey]);
   const scale = Math.min(Math.max(Math.ceil(factor * PixelRatio.get()), 1), 4);
   const uri = useMemo(
-    () => pngDataUri(encodePalettePng(screen.fb.pixels, SCREEN_WIDTH, SCREEN_HEIGHT, PALETTE, scale)),
+    () => (FramebufferView ? null : pngDataUri(encodePalettePng(screen.fb.pixels, SCREEN_WIDTH, SCREEN_HEIGHT, PALETTE, scale))),
     [screen, scale]
   );
 
@@ -84,12 +72,10 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
         onLayout={({ nativeEvent: { layout } }) => setSize({ width: layout.width, height: layout.height })}>
         {width > 0 && (
           <View style={[styles.device, { width: width + 2 * BEZEL, height: height + 2 * BEZEL }]}>
-            <View style={[styles.display, { width, height }]} {...panResponder.panHandlers}>
-              <Image
-                source={{ uri }}
-                style={{ width, height, transform: [{ translateX: offset.x }, { translateY: offset.y }] }}
-                fadeDuration={0}
-              />
+            <View style={[styles.display, { width, height }]}>
+              {FramebufferView
+                ? <FramebufferView frameKey={frameKey} version={version} style={{ width, height }} />
+                : <Image source={{ uri }} style={{ width, height }} fadeDuration={0} />}
             </View>
           </View>
         )}

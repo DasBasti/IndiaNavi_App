@@ -1,0 +1,7 @@
+{
+  "name": "indianavi-mapsforge",
+  "version": "1.0.0",
+  "description": "Draws Mapsforge vector maps with mapsforge-rs, the renderer of the IndiaNavi firmware",
+  "main": "index.js",
+  "private": true
+}

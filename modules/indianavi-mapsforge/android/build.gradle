@@ -1,0 +1,23 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'tech.platinenmacher'
+version = '1.0.0'
+
+android {
+  namespace "tech.platinenmacher.indianavimapsforge"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+    consumerProguardFiles "proguard-rules.pro"
+  }
+  // mapsforge-rs is built with cargo from CMakeLists.txt, it needs the Rust targets of the ABIs:
+  // rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+  externalNativeBuild {
+    cmake {
+      path "CMakeLists.txt"
+    }
+  }
+}

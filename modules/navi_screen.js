@@ -6,8 +6,8 @@ import { ICONS, ICON_SIZE } from './icons.js';
 import { MAX_DRAWN, screenBounds, selectMaps } from './map_catalog.js';
 import { makeView, renderMap } from './mapsforge.js';
 import {
-  BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawText, fillRect, line, makeFramebuffer, rasterTarget, setPixel,
-  textWidth,
+  BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawText, fillRect, labelPlacer, line, makeFramebuffer, rasterTarget,
+  setPixel, textWidth,
 } from './navi_raster.js';
 import { lat2world, lon2world } from './tiles.js';
 
@@ -306,10 +306,19 @@ export const renderNaviScreen = ({
   const drawn = mapsOfScreen(maps, screen);
   if (drawn.length > 0) {
     try {
-      const view = (map) => makeView({
-        lat, lon, zoom, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, anchorX, anchorY, tileSize: map.header.tileSize,
-      });
-      tiles = renderMap(drawn, view, rasterTarget(fb));
+      if (drawn.every((map) => map.native)) {
+        // opened natively (vector_maps.js): mapsforge-rs draws into the framebuffer, the names are placed here
+        const view = { lat, lon, zoom, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, anchorX, anchorY };
+        const result = drawn[0].native.render(drawn.map((map) => map.native.id), view, fb.pixels);
+        const label = labelPlacer(fb);
+        result.labels.forEach(({ x, y, text, rank }) => label(x, y, text, rank));
+        tiles = result.tiles;
+      } else {
+        const view = (map) => makeView({
+          lat, lon, zoom, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, anchorX, anchorY, tileSize: map.header.tileSize,
+        });
+        tiles = renderMap(drawn, view, rasterTarget(fb));
+      }
     } catch (e) {
       error = e;
     }
