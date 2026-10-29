@@ -82,8 +82,8 @@ export const testTileBounds = (lat, lon) => {
 };
 
 // Builds a map: pois are { lat, lon, tags: ['k=v'], name, layer }, ways are { tags, name, layer, blocks: [[[lat, lon],
-// ...]] }. water marks the tile as a water tile. Returns the bytes of the file.
-export const buildTestMap = ({ lat, lon, pois = [], ways = [], water = false, startPosition = null }) => {
+// ...]] }. water marks the tile as a water tile, created is the creation date in ms. Returns the bytes of the file.
+export const buildTestMap = ({ lat, lon, pois = [], ways = [], water = false, startPosition = null, created = Date.UTC(2026, 0, 1) }) => {
   const bounds = testTileBounds(lat, lon);
   const poiTags = [...new Set(pois.flatMap((poi) => poi.tags))];
   const wayTags = [...new Set(ways.flatMap((way) => way.tags))];
@@ -142,7 +142,7 @@ export const buildTestMap = ({ lat, lon, pois = [], ways = [], water = false, st
 
   const header = new Writer();
   header.u64(0); // file size, patched below
-  header.u64(Date.UTC(2026, 0, 1));
+  header.u64(created);
   // a micro degree inside of the tile, on its edges the neighbours would be part of the map
   [bounds.minLat + 1e-6, bounds.minLon + 1e-6, bounds.maxLat - 1e-6, bounds.maxLon - 1e-6]
     .forEach((value) => header.i32(Math.round(value * 1e6)));
