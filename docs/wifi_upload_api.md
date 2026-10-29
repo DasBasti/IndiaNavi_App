@@ -81,7 +81,12 @@ as `indianavi.local` or by its address in that network.
 
 ### HTTP
 
-- Plain HTTP/1.1 on port 80. No TLS, no authentication (see "Open points").
+- Plain HTTP/1.1 on port 80, no TLS.
+- Requests that change the device (`PUT`, `DELETE`, `POST`) are accepted over the access point of the device,
+  which is protected by its WPA2 password. In the WiFi of a router they need that password as token,
+  `Authorization: Bearer <password of the access point>`, else the answer is `401`. Reading (`GET`) needs no
+  token, except a recorded track. The app sends the token in router mode with every change; the password is
+  shown with the QR code on the charging screen.
 - The server has to support keep-alive. The app sends more than a thousand requests,
   so a new connection per file would be too slow.
 - The app uses at most 2 connections at the same time.
@@ -355,6 +360,7 @@ Errors have a short plain text body with the reason, for the log of the app.
 | Status | When |
 |---|---|
 | `400` | path not allowed or malformed, `Content-Range` that does not fit |
+| `401` | a change (`PUT`, `DELETE`, `POST`) in the WiFi of a router without the token, see "HTTP" |
 | `404` | file or folder does not exist (`GET`, `DELETE`) |
 | `411` | `PUT` without `Content-Length` |
 | `416` | `Content-Range` does not start where the part of the map on the card ends |
@@ -430,5 +436,6 @@ curl -X DELETE http://indianavi.local/api/transfer
 - **WiFi availability.** The server runs only while charging, because WiFi is only
   on then. The device stays awake and connected while it is charging.
 - **Access control.** In the access point of the device only who knows the
-  password (shown on the device) can connect. In a router WiFi anyone in the same
-  network can write to the SD card.
+  password (shown on the device) can connect. In a router WiFi changes need the
+  same password as token, but it goes over plain HTTP: anyone who can read the
+  traffic of that WiFi learns it.

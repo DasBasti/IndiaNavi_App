@@ -7,6 +7,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import Button from './Button';
 import { BusyWindow, Hint, Input, Message, ProgressWindow, ScreenHeader, SectionTitle } from './ui';
 import { colors } from '../theme';
+import { setDeviceToken } from '../modules/device_auth';
 import {
   ACCESS_POINT_ADDRESS,
   DEFAULT_ROUTER_ADDRESS,
@@ -207,6 +208,8 @@ export default function TransferScreen({
         onDeviceChange({ mode, ssid, password, address });
         disconnectFromDeviceWifi();
         base = deviceUrl(address.trim());
+        // outside of its own WiFi the device only takes changes with the password of that WiFi
+        setDeviceToken(base, password.trim());
       }
       setConnection({ base, info: await getDeviceInfo(base) });
     } catch (e) {
@@ -520,6 +523,8 @@ export default function TransferScreen({
           <>
             <Hint>
               The IndiaNavi joins the WiFi from the WIFI file on its SD card. The phone has to be in the same WiFi.
+              To send files the app needs the password of the WiFi of the IndiaNavi, it is shown with the QR code on
+              the charging screen.
             </Hint>
             <Input
               value={address}
@@ -528,6 +533,13 @@ export default function TransferScreen({
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="url"
+            />
+            <Input
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Password of the WiFi of the IndiaNavi"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
           </>
         )}

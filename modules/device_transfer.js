@@ -2,6 +2,7 @@ import { fetch } from "expo/fetch";
 import { File, FileMode, Paths, UploadTask } from "expo-file-system";
 
 import { recordingPath } from "./ble/protocol";
+import { UNAUTHORIZED_TEXT, authHeaders } from "./device_auth";
 import { checkFirmwareImage } from "./firmware_release";
 import { contentRange, resumeOffset } from "./map_upload";
 import { SIMULATED_BASE, simulatedResponse } from "./simulated_device";
@@ -53,7 +54,12 @@ const request = async (base, method, path, { body, headers, signal, timeout = RE
     const timer = setTimeout(abort, timeout);
     signal?.addEventListener("abort", abort);
     try {
-        const response = await fetch(`${base}${path}`, { method, body, headers, signal: controller.signal });
+        const response = await fetch(`${base}${path}`, {
+            method,
+            body,
+            headers: { ...authHeaders(base, method), ...headers },
+            signal: controller.signal,
+        });
         return { status: response.status, text: await response.text() };
     } catch (error) {
         if (controller.signal.aborted && !signal?.aborted) {
@@ -68,7 +74,7 @@ const request = async (base, method, path, { body, headers, signal, timeout = RE
 }
 
 const httpError = (what, { status, text }) =>
-    new Error(`${what}: HTTP ${status}${text ? ` ${text.trim()}` : ""}`);
+    new Error(status === 401 ? UNAUTHORIZED_TEXT : `${what}: HTTP ${status}${text ? ` ${text.trim()}` : ""}`);
 
 export const isTimeout = (error) => error instanceof TimeoutError;
 
@@ -338,7 +344,7 @@ const copyRest = async (uri, start, size, signal) => {
 const putMap = async (base, map, path, { start, resumable, signal, onProgress }) => {
 
     const progress = (sent) => onProgress?.({ bytesSent: start + sent, totalBytes: map.size });
-    const headers = { "Content-Type": "application/octet-stream" };
+    const headers = { ...authHeaders(base, "PUT"), "Content-Type": "application/octet-stream" };
     if (resumable) {
         headers["Content-Range"] = contentRange(start, map.size);
     }
