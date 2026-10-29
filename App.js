@@ -123,8 +123,8 @@ export default function App() {
   // { files, bytes, failed } when the files are ready for the transfer
   const [prepared, setPrepared] = useState(null);
   const abort = useRef(null);
-  // the vector map the simulated IndiaNavi draws: { map } of the selected file, or { error }
-  const [vectorMap, setVectorMap] = useState(null);
+  // the vector maps the simulated IndiaNavi draws: { maps, errors } of the checked files
+  const [vectorMaps, setVectorMaps] = useState({ maps: [], errors: [] });
 
   // a track decides the area, without a track it is around the middle of the map
   const bounds = useMemo(
@@ -147,51 +147,64 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
+  // changes are the changed settings, or a function that returns them from the current settings
   const changeSettings = useCallback((changes) => {
     setSettings((current) => {
-      const newSettings = { ...current, ...changes };
+      const newSettings = { ...current, ...(typeof changes === 'function' ? changes(current) : changes) };
       saveSettings(newSettings);
       return newSettings;
     });
   }, []);
 
-  // the selected vector map is opened while it is selected. Without a track the position moves onto the map when it
-  // is outside of it, so the simulated IndiaNavi shows something.
-  const vectorMapName = settings.vectorMap;
+  // the checked vector maps are the maps for the IndiaNavi: the simulation draws them and they are sent to the
+  // device. Settings of older versions had one selected map.
+  const checkedMaps = useMemo(
+    () => (Array.isArray(settings.vectorMaps) ? settings.vectorMaps : settings.vectorMap ? [settings.vectorMap] : []),
+    [settings.vectorMaps, settings.vectorMap]
+  );
+  // names of the maps on the SD card of the IndiaNavi: { [name on the phone]: 'rheinl01.map' }
+  const cardMaps = settings.cardMaps ?? {};
+  const changeCheckedMaps = useCallback(
+    (maps) => changeSettings({ vectorMaps: maps, vectorMap: undefined }),
+    [changeSettings]
+  );
+
+  // the checked maps are open while they are checked. Without a track the position moves onto the maps when it is
+  // outside of all of them, so the simulated IndiaNavi shows something.
+  const checkedKey = checkedMaps.join('\n');
   const hasTrackRef = useRef(false);
   hasTrackRef.current = track !== null;
   useEffect(() => {
-    if (!vectorMapName) {
-      setVectorMap(null);
-      return undefined;
-    }
-    let opened = null;
-    try {
-      opened = openMapFile(vectorMapName);
-      setVectorMap({ map: opened });
-      const { lat, lon } = latestView.current;
-      if (!hasTrackRef.current && !mapCovers(opened.header, lat, lon)) {
-        const center = mapCenter(opened.header);
-        const newView = { ...latestView.current, lat: center.lat, lon: center.lon };
-        viewMoved.current = true;
-        setView(newView);
-        changeSettings({ view: newView });
+    const maps = [];
+    const errors = [];
+    for (const name of checkedKey ? checkedKey.split('\n') : []) {
+      try {
+        maps.push(openMapFile(name));
+      } catch (e) {
+        errors.push(`${displayName(name)}: ${e.message}`);
       }
-    } catch (e) {
-      setVectorMap({ error: e.message });
     }
-    return () => opened?.close();
-  }, [vectorMapName, changeSettings]);
+    setVectorMaps({ maps, errors });
+    const { lat, lon } = latestView.current;
+    if (maps.length > 0 && !hasTrackRef.current && !maps.some((map) => mapCovers(map.header, lat, lon))) {
+      const center = mapCenter(maps[0].header);
+      const newView = { ...latestView.current, lat: center.lat, lon: center.lon };
+      viewMoved.current = true;
+      setView(newView);
+      changeSettings({ view: newView });
+    }
+    return () => maps.forEach((map) => map.close());
+  }, [checkedKey, changeSettings]);
 
-  // the first map on the phone is used if none is selected
+  // the first map on the phone is checked if no map was ever checked
   useEffect(() => {
-    if (!vectorMapName) {
+    if (!Array.isArray(settings.vectorMaps) && !settings.vectorMap) {
       const first = listMaps()[0];
       if (first) {
-        changeSettings({ vectorMap: first.name });
+        changeCheckedMaps([first.name]);
       }
     }
-    // only when the app starts, a deselected map stays deselected
+    // only when the app starts, unchecked maps stay unchecked
   }, []);
 
   const changeView = useCallback((newView) => {
@@ -430,10 +443,10 @@ export default function App() {
     </>
   );
 
-  const naviMap = vectorMap?.map ? (
+  const naviMap = vectorMaps.maps.length > 0 ? (
     <View style={styles.navi}>
       <NaviView
-        map={vectorMap.map}
+        maps={vectorMaps.maps}
         view={view}
         onViewChange={changeView}
         zoomIndex={naviZoom}
@@ -447,7 +460,7 @@ export default function App() {
     <View style={styles.noMap}>
       <Icon name="noSD" size={48} />
       <Text style={styles.noMapTitle}>No vector map</Text>
-      {vectorMap?.error && <Message tone="red" icon="noSD">{vectorMap.error}</Message>}
+      {vectorMaps.errors.map((text) => <Message key={text} tone="red" icon="noSD">{text}</Message>)}
       <Hint style={styles.noMapHint}>
         The IndiaNavi draws its map from a Mapsforge vector map. Download the map of your region to see the device
         here as it shows your track.
@@ -460,7 +473,11 @@ export default function App() {
     <View style={styles.row}>
       <Icon name="SD" size={32} />
       <Text style={styles.mapName} numberOfLines={1}>
-        {vectorMap?.map ? displayName(settings.vectorMap) : 'No vector map selected'}
+        {vectorMaps.maps.length === 0
+          ? 'No vector map checked'
+          : vectorMaps.maps.length === 1
+            ? displayName(vectorMaps.maps[0].name)
+            : `${vectorMaps.maps.length} vector maps`}
       </Text>
       <Button title="Maps" onPress={() => setScreen('maps')} variant="plain" compact />
       <Button title="Colors" onPress={() => setScreen('filter')} variant="plain" compact />
@@ -579,13 +596,8 @@ export default function App() {
           />
         ) : screen === 'maps' ? (
           <MapsScreen
-            selected={settings.vectorMap}
-            onSelect={(name) => {
-              changeSettings({ vectorMap: name ?? undefined });
-              if (name) {
-                setScreen('main');
-              }
-            }}
+            checked={checkedMaps}
+            onCheckedChange={changeCheckedMaps}
             onBack={() => setScreen('main')}
           />
         ) : screen === 'connection' ? (
@@ -620,6 +632,9 @@ export default function App() {
             device={settings.device ?? {}}
             onDeviceChange={(device) => changeSettings({ device })}
             onTransferred={() => changeSettings({ deviceTrackId: track?.id })}
+            maps={vectorMaps.maps}
+            cardMaps={cardMaps}
+            onCardMapsChange={(update) => changeSettings((current) => ({ cardMaps: update(current.cardMaps ?? {}) }))}
             onBack={() => setScreen(transferBack)}
           />
         ) : (

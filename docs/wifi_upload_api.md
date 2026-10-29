@@ -1,6 +1,7 @@
 # IndiaNavi WiFi upload API
 
-Status: version 1, implemented in the firmware (`src/esp32/upload_server.c`).
+Status: version 2, implemented in the firmware (`src/esp32/upload_server.c`). Version 2 adds the vector maps
+(`MAPS/{name}.map`, `GET /api/maps`).
 The server runs while the device is charging, because only then WiFi is on.
 The device opens its own access point for the app (see "Transport").
 
@@ -17,9 +18,13 @@ The files have the same names and layout as on the SD card today:
 |---|---|---|
 | `track.gpx` | the GPX file the user opened | some 10 kB to a few MB |
 | `MAPS/{zoom}/{x}/{y}.raw` | one map tile, 256x256 pixels, 4 bit per pixel | exactly 32768 bytes |
+| `MAPS/{name}.map` | a vector map (Mapsforge), API version 2 | some 10 MB to a few GB |
 
 - `{zoom}` is 14 or 16 today. `{x}` and `{y}` are the usual slippy map tile numbers in decimal.
 - A typical track needs 1100 to 1700 tiles, which is 36 to 55 MB.
+- `{name}` of a vector map has 1 to 8 letters, digits, `_` or `-`. The app names maps after their region and a
+  number, `rheinl01.map`. The device draws all maps in `MAPS` that cover the screen (at most 4), a newer map of a
+  region replaces an older one, see `Documentation/multiple_vector_maps.md` of the firmware.
 - All names fit into 8.3, so FAT long file names are not needed.
 
 ## Transport
@@ -88,6 +93,7 @@ as `indianavi.local` or by its address in that network.
 | Method and path | Purpose | Required |
 |---|---|---|
 | `GET /api/info` | find the device, check free space | yes |
+| `GET /api/maps` | the vector maps on the card, read from their headers (version 2) | optional |
 | `GET /sd/{dir}/` | list a folder, to skip files that are already there | yes |
 | `GET /sd/TRACKS/{id}.gpx` | download a recorded track | optional |
 | `PUT /sd/{path}` | write one file | yes |
@@ -111,8 +117,9 @@ Response `200`, `Content-Type: application/json`:
 {
   "id": "MeinIndiaNavi",
   "firmware": "1.2.3",
-  "api": 1,
+  "api": 2,
   "ota": true,
+  "vector_maps": true,
   "sd": { "present": true, "free": 1234567890, "total": 7948206080 }
 }
 ```
@@ -121,10 +128,37 @@ Response `200`, `Content-Type: application/json`:
 |---|---|
 | `id` | `<id>` from `config.xml` |
 | `firmware` | firmware version, free text |
-| `api` | version of this API, `1` for this document |
+| `api` | version of this API, `2` for this document |
 | `ota` | `true` if the device accepts `PUT /api/firmware`. Missing on older firmware |
+| `vector_maps` | `true` if the firmware draws vector maps, then it accepts `MAPS/{name}.map` and `GET /api/maps`. Missing before version 2 |
 | `sd.present` | `false` if no SD card is mounted; `free` and `total` are `0` then |
 | `sd.free`, `sd.total` | bytes |
+
+### GET /api/maps (version 2)
+
+The vector maps in `MAPS`, read from their headers. Takes about 30 ms per map.
+
+Response `200`, `Content-Type: application/json`:
+
+```json
+{
+  "maps": [
+    { "file": "rheinl01.map", "size": 301234567, "created": 1759550000000,
+      "bounds": [48.96, 6.11, 50.95, 8.51], "used": true }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `file` | name on the card, lower case |
+| `size` | bytes |
+| `created` | creation date of the map in milliseconds since 1970, from its header |
+| `bounds` | `[min_lat, min_lon, max_lat, max_lon]` |
+| `used` | `false` if a newer map covers at least 90 % of it, then it is not drawn |
+
+Files that are no Mapsforge map are not listed. `404` if the firmware has no vector maps, `503` if the card can
+not be read.
 
 ### GET /sd/{dir}/
 
@@ -165,9 +199,9 @@ Response `204` without body once the file is completely on the card.
 
 Rules:
 
-1. **Allowed paths.** Only `track.gpx` and `MAPS/{zoom}/{x}/{y}.raw` with
-   decimal numbers are accepted. Everything else, including any path with `..`,
-   is answered with `400`.
+1. **Allowed paths.** Only `track.gpx`, `MAPS/{zoom}/{x}/{y}.raw` with
+   decimal numbers and (version 2) `MAPS/{name}.map` are accepted. Everything
+   else, including any path with `..`, is answered with `400`.
 2. **Folders.** Missing parent folders are created.
 3. **Atomic write.** The data is written to a temporary file in the same folder
    with the extension `.tmp` (for example `22454.tmp`). If the number of bytes
@@ -177,6 +211,13 @@ Rules:
 4. **Overwrite.** An existing file is replaced.
 5. **Answer after the write.** The `204` is sent after the file is closed and
    renamed, not when the body was received.
+6. **Big files.** A map is one request of many minutes. The device keeps its
+   WiFi and an announced transfer running while bytes come in. The card needs
+   the size of the file free, also when it replaces a map of the same name.
+   Files are at most 4 GB - 1 (FAT32, and `Content-Length` is 32 bit on the
+   device). The app streams maps from the file, they do not fit into memory.
+   After a map was written or deleted, `POST /api/reload` makes the map screen
+   read the maps again.
 
 ### GET /sd/TRACKS/{id}.gpx (optional)
 
@@ -223,7 +264,7 @@ Request, `Content-Type: application/json`:
 | Field | Meaning |
 |---|---|
 | `files` | number of `PUT` requests that will follow, including `track.gpx`. Required, greater than 0 |
-| `bytes` | sum of all file sizes. Optional, only reported back by `GET /api/transfer` |
+| `bytes` | sum of all file sizes. Optional; if it is given, the display shows the MB and the bar follows the bytes, a map is one file of hundreds of MB |
 
 Response `200` with the same body as `GET /api/transfer`. `400` if `files` is
 missing or 0.
@@ -234,10 +275,12 @@ Rules:
    already on the card (step 2 below) must not be included in `files`.
 2. Every successful `PUT` (answered with `204`) counts as one file. Failed and
    retried requests count once, when they succeed. `DELETE` does not count.
+   Bytes count while they come in, the bytes of a failed `PUT` are taken back.
 3. When `files` uploads have succeeded, the transfer is `done` and the display
    shows "Upload complete".
-4. If no `PUT` succeeds for 2 minutes, the transfer is `aborted` and the display
-   shows "Upload stopped". Send `POST /api/transfer` again to start a new one.
+4. If no `PUT` succeeds and no bytes come in for 2 minutes, the transfer is
+   `aborted` and the display shows "Upload stopped". Send `POST /api/transfer`
+   again to start a new one.
 5. A new `POST /api/transfer` replaces the previous one and starts counting at 0.
 6. When WiFi goes away (charger unplugged), the transfer is forgotten.
 
@@ -321,6 +364,17 @@ If the user cancels, send `DELETE /api/transfer`.
 A transfer takes time: the device stores about 5 tiles per second (measured with
 2 connections, about 180 kB/s), so 1500 tiles take about 5 minutes.
 
+Vector maps (version 2, `vector_maps` in `GET /api/info`):
+
+1. `GET /api/maps` to see which maps are on the card.
+2. For a map that is missing or has another size: check `sd.free` of `GET /api/info`,
+   `POST /api/transfer` with `{"files": 1, "bytes": <size>}`, `PUT /sd/MAPS/{name}.map`
+   streamed from the file, `POST /api/reload`.
+3. `DELETE /sd/MAPS/{name}.map` and `POST /api/reload` removes a map.
+
+The speed of a single big upload is not measured yet; at the 180 kB/s of the tiles a map of 300 MB takes about
+half an hour.
+
 ## Testing without the app
 
 ```sh
@@ -329,6 +383,8 @@ curl http://indianavi.local/sd/MAPS/16/34169/
 curl -T 22454.raw http://indianavi.local/sd/MAPS/16/34169/22454.raw
 curl -T track.gpx http://indianavi.local/sd/track.gpx
 curl -X DELETE http://indianavi.local/sd/MAPS/16/34169/22454.raw
+curl http://indianavi.local/api/maps
+curl -T germany-saarland.map http://indianavi.local/sd/MAPS/saarla01.map
 curl -X POST http://indianavi.local/api/reload
 curl -X POST -d '{"files": 2, "bytes": 65536}' http://indianavi.local/api/transfer
 curl http://indianavi.local/api/transfer

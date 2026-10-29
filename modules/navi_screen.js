@@ -3,6 +3,7 @@
 // height graph and the black info strip at the bottom. The app shows it as a simulated display.
 
 import { ICONS, ICON_SIZE } from './icons.js';
+import { MAX_DRAWN, screenBounds, selectMaps } from './map_catalog.js';
 import { makeView, renderMap } from './mapsforge.js';
 import {
   BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawText, fillRect, line, makeFramebuffer, rasterTarget, setPixel,
@@ -245,11 +246,18 @@ const heightGraph = (fb, points, current) => {
 
 const hemisphere = (value, positive, negative) => `${Math.abs(value).toFixed(6)}${value < 0 ? negative : positive}`;
 
-// Draws the map screen. options: { map (openMap) or null, lat, lon, zoomIndex (into NAVI_ZOOMS), track: { name,
-// lines } or null, trackColor (ink), showTrack, showHeightGraph, battery, satellites, hdop, altitude }.
-// Returns { fb, tiles, error }: tiles is the number of map tiles that were drawn, error a failed map read.
+// The maps the device draws for a screen, by the rules of its map catalog (map_catalog.js)
+const mapsOfScreen = (maps, screen) => {
+  const entries = maps.map((map) => ({ map, created: map.header.created, bounds: map.header.bounds }));
+  return selectMaps(entries, screen, MAX_DRAWN).map(({ map }) => map);
+};
+
+// Draws the map screen. options: { maps (of openMap, the maps on the SD card), lat, lon, zoomIndex (into NAVI_ZOOMS),
+// track: { name, lines } or null, trackColor (ink), showTrack, showHeightGraph, battery, satellites, hdop, altitude }.
+// Returns { fb, tiles, drawn, error }: tiles is the number of map tiles that were drawn, drawn the maps that were
+// drawn, error a failed map read.
 export const renderNaviScreen = ({
-  map, lat, lon, zoomIndex = 0, track = null, trackColor = BLUE, showTrack = true, showHeightGraph = true,
+  maps = [], lat, lon, zoomIndex = 0, track = null, trackColor = BLUE, showTrack = true, showHeightGraph = true,
   battery = 80, satellites = 9, hdop = 1, altitude = 0,
 }) => {
   const fb = makeFramebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
@@ -263,12 +271,14 @@ export const renderNaviScreen = ({
 
   let tiles = 0;
   let error = null;
-  if (map) {
+  const screen = screenBounds({ lat, lon, zoom, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, anchorX, anchorY });
+  const drawn = mapsOfScreen(maps, screen);
+  if (drawn.length > 0) {
     try {
-      const view = makeView({
+      const view = (map) => makeView({
         lat, lon, zoom, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, anchorX, anchorY, tileSize: map.header.tileSize,
       });
-      tiles = renderMap(map, view, rasterTarget(fb));
+      tiles = renderMap(drawn, view, rasterTarget(fb));
     } catch (e) {
       error = e;
     }
@@ -312,5 +322,5 @@ export const renderNaviScreen = ({
   fillRect(fb, 0, infoTop, SCREEN_WIDTH, INFO_HEIGHT, BLACK);
   drawText(fb, 1 + Math.trunc((SCREEN_WIDTH - textWidth(info)) / 2), infoTop + 1 + (INFO_HEIGHT - CHAR_HEIGHT) / 2, info, WHITE);
 
-  return { fb, tiles, error };
+  return { fb, tiles, drawn, error };
 };

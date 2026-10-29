@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import Button from './Button';
-import Icon from './Icon';
 import { Badge, Card, Hint, Message, ProgressWindow, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, font } from '../theme';
 import { MAP_SERVER, breadcrumbs, displayName, localName, parseListing } from '../modules/map_listing';
@@ -15,9 +14,9 @@ const megabytes = (bytes) => (bytes >= 1024 ** 3
 // some space stays free on the phone
 const SPACE_RESERVE = 200 * 1024 * 1024;
 
-// The vector maps on the phone and the Mapsforge maps to download. The selected map is the one the simulated
-// IndiaNavi draws. onSelect gets the name of a map, null when the selected one was deleted.
-export default function MapsScreen({ selected, onSelect, onBack }) {
+// The vector maps on the phone and the Mapsforge maps to download. The checked maps are the maps for the IndiaNavi:
+// the simulated IndiaNavi draws them and they are sent to its SD card. onCheckedChange gets the new list of names.
+export default function MapsScreen({ checked, onCheckedChange, onBack }) {
   const [maps, setMaps] = useState(listMaps);
   // name of the map that waits for the confirmation to be deleted
   const [deleting, setDeleting] = useState(null);
@@ -69,8 +68,8 @@ export default function MapsScreen({ selected, onSelect, onBack }) {
     }
     setMaps(listMaps());
     setDeleting(null);
-    if (name === selected) {
-      onSelect(null);
+    if (checked.includes(name)) {
+      onCheckedChange(checked.filter((other) => other !== name));
     }
   };
 
@@ -93,8 +92,8 @@ export default function MapsScreen({ selected, onSelect, onBack }) {
       setMaps(listMaps());
       setMessage({ tone: 'green', text: `${displayName(entry.name)} is on the phone.` });
       // the first map is used right away
-      if (!selected) {
-        onSelect(name);
+      if (checked.length === 0) {
+        onCheckedChange([name]);
       }
     } catch (e) {
       setMessage(controller.signal.aborted
@@ -128,6 +127,13 @@ export default function MapsScreen({ selected, onSelect, onBack }) {
         {message && <Message tone={message.tone} icon={message.tone === 'red' ? 'noSD' : 'SD'}>{message.text}</Message>}
 
         <SectionTitle>On the phone</SectionTitle>
+        {maps.length > 0 && (
+          <Hint>
+            Tap the maps for the IndiaNavi. The simulated IndiaNavi draws them, and Connection, WiFi transfer sends them
+            to its SD card. Like the device it draws the maps that cover the screen, at most 4, and a newer map of a
+            region replaces an older one.
+          </Hint>
+        )}
         {maps.length === 0 ? (
           <Hint>
             There is no vector map on the phone yet. Download the map of the region you want to walk in below, the
@@ -136,15 +142,19 @@ export default function MapsScreen({ selected, onSelect, onBack }) {
         ) : maps.map((map) => (
           <Card
             key={map.name}
-            onPress={() => onSelect(map.name)}
-            color={map.name === selected ? colors.green : colors.paper}
-            selected={map.name === selected}
+            onPress={() => onCheckedChange(checked.includes(map.name)
+              ? checked.filter((other) => other !== map.name)
+              : [...checked, map.name])}
+            color={checked.includes(map.name) ? colors.green : colors.paper}
+            selected={checked.includes(map.name)}
             style={styles.item}>
-            <Icon name="SD" size={32} />
+            <View style={[styles.check, checked.includes(map.name) && styles.checked]}>
+              {checked.includes(map.name) && <Text style={styles.checkMark}>✓</Text>}
+            </View>
             <View style={styles.details}>
               <Text style={styles.name} numberOfLines={2}>{displayName(map.name)}</Text>
               <Text style={styles.meta}>{map.name} · {megabytes(map.size)}</Text>
-              {map.name === selected && <View style={styles.row}><Badge color={colors.ink}>selected</Badge></View>}
+              {checked.includes(map.name) && <View style={styles.row}><Badge color={colors.ink}>for the IndiaNavi</Badge></View>}
             </View>
             {deleting === map.name ? (
               <View style={styles.row}>
@@ -253,6 +263,23 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 24,
     color: colors.ink,
+  },
+  check: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: BORDER,
+    borderColor: colors.ink,
+    backgroundColor: colors.paper,
+  },
+  checked: {
+    backgroundColor: colors.ink,
+  },
+  checkMark: {
+    fontWeight: 'bold',
+    fontSize: 16,
+    color: colors.paper,
   },
   delete: {
     width: 32,

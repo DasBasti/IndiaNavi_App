@@ -14,11 +14,12 @@ const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
 // frame of the device around the display
 const BEZEL = 10;
 
-// The IndiaNavi on the phone: its map screen as the device draws it from the vector map. Dragging moves the
-// simulated GPS position, the button switches between the 100 m and the 500 m scale like the button of the device.
+// The IndiaNavi on the phone: its map screen as the device draws it from the vector maps (the checked maps, which are
+// also the maps for its SD card). Dragging moves the simulated GPS position, the button switches between the 100 m
+// and the 500 m scale like the button of the device.
 // view is { lon, lat } of the position, onViewChange gets the new one. A track (lines) is drawn with its height graph,
 // fitKey moves the position to the start of the track once.
-export default function NaviView({ map, view, onViewChange, zoomIndex, onZoomChange, track, fitKey, trackColor }) {
+export default function NaviView({ maps, view, onViewChange, zoomIndex, onZoomChange, track, fitKey, trackColor }) {
   const [size, setSize] = useState(null);
   // display pixels the screen is dragged by the finger, committed to the position when it is released
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -64,8 +65,8 @@ export default function NaviView({ map, view, onViewChange, zoomIndex, onZoomCha
 
   // the screen is drawn again after every change, drawing a map takes some 10 to a few 100 ms
   const screen = useMemo(
-    () => renderNaviScreen({ map, lat: view.lat, lon: view.lon, zoomIndex, track, trackColor }),
-    [map, view.lat, view.lon, zoomIndex, track, trackColor]
+    () => renderNaviScreen({ maps, lat: view.lat, lon: view.lon, zoomIndex, track, trackColor }),
+    [maps, view.lat, view.lon, zoomIndex, track, trackColor]
   );
 
   // the pixels are enlarged before they are shown, so they stay sharp
@@ -95,8 +96,8 @@ export default function NaviView({ map, view, onViewChange, zoomIndex, onZoomCha
       {screen.error && (
         <Text style={styles.error}>The map can not be read: {screen.error.message}</Text>
       )}
-      {map && !screen.error && screen.tiles === 0 && (
-        <Text style={styles.note}>The position is outside of the vector map, the IndiaNavi shows no map here.</Text>
+      {!screen.error && screen.tiles === 0 && (
+        <Text style={styles.note}>The position is outside of the vector maps, the IndiaNavi shows no map here.</Text>
       )}
       <Button
         title={`Scale ${NAVI_ZOOMS[zoomIndex].text} ⇄ ${NAVI_ZOOMS[(zoomIndex + 1) % NAVI_ZOOMS.length].text}`}

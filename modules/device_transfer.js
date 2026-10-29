@@ -1,5 +1,5 @@
 import { fetch } from "expo/fetch";
-import { File } from "expo-file-system";
+import { File, UploadTask } from "expo-file-system";
 
 import { recordingPath } from "./ble/protocol";
 import { checkFirmwareImage } from "./firmware_release";
@@ -267,6 +267,88 @@ export const downloadRecording = async (base, id, { signal, token } = {}) => {
         throw httpError("Download", response);
     }
     return response.text;
+}
+
+// true if the device takes vector maps over WiFi (API version 2)
+export const supportsMaps = (info) => info.api >= 2 && info.vector_maps === true;
+
+// The vector maps on the SD card of the device, read from their headers:
+// [{ file, size, created, bounds: { minLat, minLon, maxLat, maxLon }, used }], used is false for a map that is
+// replaced by a newer one of the same region
+export const getDeviceMaps = async (base, signal) => {
+    const response = await request(base, "GET", "/api/maps", { signal });
+    if (response.status !== 200) {
+        throw httpError("Maps", response);
+    }
+    return JSON.parse(response.text).maps.map(({ bounds: [minLat, minLon, maxLat, maxLon], ...map }) => ({
+        ...map,
+        bounds: { minLat, minLon, maxLat, maxLon },
+    }));
+}
+
+export const mapPath = (file) => `MAPS/${file}`;
+
+// Deletes a vector map of the SD card and lets the device read its maps again
+export const deleteDeviceMap = async (base, file, signal) => {
+    await deleteFile(base, mapPath(file), signal);
+    await request(base, "POST", "/api/reload", { signal });
+}
+
+// Sends a vector map ({ uri, size, created, bounds } of the map on the phone) to the SD card as file (an 8.3 name).
+// The file is streamed from the phone, maps have hundreds of MB. The device shows the progress on its display and
+// reads its maps again afterwards. onProgress gets { bytesSent, totalBytes }.
+export const sendMap = async (base, map, file, { signal, onProgress } = {}) => {
+
+    const path = mapPath(file);
+    const announced = await request(base, "POST", "/api/transfer", {
+        body: JSON.stringify({ files: 1, bytes: map.size }),
+        headers: { "Content-Type": "application/json" },
+        signal,
+    });
+    if (announced.status !== 200) {
+        throw httpError("Transfer", announced);
+    }
+
+    let result;
+    try {
+        if (base === SIMULATED_BASE) {
+            // a few steps of progress, nothing is sent
+            for (let step = 1; step <= 10; step++) {
+                await wait(100, signal);
+                onProgress?.({ bytesSent: map.size * step / 10, totalBytes: map.size });
+            }
+            result = simulatedResponse("PUT", `/sd/${path}`, { map });
+        } else {
+            const task = new UploadTask(new File(map.uri), `${base}/sd/${path}`, {
+                httpMethod: "PUT",
+                headers: { "Content-Type": "application/octet-stream" },
+                onProgress,
+                signal,
+            });
+            try {
+                const response = await task.uploadAsync();
+                result = { status: response.status, text: response.body };
+            } finally {
+                task.release();
+            }
+        }
+    } catch (error) {
+        // removes the progress from the display
+        await request(base, "DELETE", "/api/transfer", { timeout: INFO_TIMEOUT }).catch(() => { });
+        throw error;
+    }
+
+    if (result.status === 507) {
+        throw new Error("The SD card of the IndiaNavi is full");
+    }
+    if (result.status !== 204) {
+        throw httpError(path, result);
+    }
+    const reloaded = await request(base, "POST", "/api/reload", { signal });
+    if (reloaded.status !== 204) {
+        throw httpError("Reload", reloaded);
+    }
+
 }
 
 // Reads a firmware image (.bin of the IndiaNavi firmware) from a picked file

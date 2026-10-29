@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { bufferSource, openMap } from './mapsforge.js';
-import { buildTestMap } from './mapsforge_test_map.js';
+import { buildTestMap, testTileBounds } from './mapsforge_test_map.js';
 import { BLACK, WHITE, fillPolygon, labelPlacer, makeFramebuffer, polyline, toAscii } from './navi_raster.js';
 import { NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, renderNaviScreen } from './navi_screen.js';
 import { BLUE, GREEN, P50, RED, tint } from './vector_style.js';
@@ -53,7 +53,7 @@ test('the screen has the bars of the device around the map', () => {
     lon: LON,
     ways: [{ tags: ['natural=water'], blocks: [[[LAT - 0.01, LON - 0.01], [LAT - 0.01, LON + 0.01], [LAT + 0.01, LON + 0.01], [LAT + 0.01, LON - 0.01], [LAT - 0.01, LON - 0.01]]] }],
   })));
-  const { fb, tiles, error } = renderNaviScreen({ map, lat: LAT, lon: LON, trackColor: RED });
+  const { fb, tiles, error } = renderNaviScreen({ maps: [map], lat: LAT, lon: LON, trackColor: RED });
   assert.equal(error, null);
   assert.equal(tiles, 1);
   assert.equal(fb.width, SCREEN_WIDTH);
@@ -73,10 +73,40 @@ test('the screen has the bars of the device around the map', () => {
   assert.ok(markers.length > 50);
 });
 
+test('neighbouring maps are drawn together, an older copy of one is left out', () => {
+  // three maps of one zoom 14 tile each: A with a forest, B east of it with a lake, OLD an older A with a lake
+  const a = testTileBounds(LAT, LON);
+  const lat = (a.minLat + a.maxLat) / 2;
+  const span = a.maxLon - a.minLon;
+  const fill = (tag, lon) => [{
+    tags: [tag],
+    blocks: [[[lat - 0.008, lon - span / 2 + 1e-5], [lat - 0.008, lon + span / 2 - 1e-5], [lat + 0.008, lon + span / 2 - 1e-5],
+      [lat + 0.008, lon - span / 2 + 1e-5], [lat - 0.008, lon - span / 2 + 1e-5]]],
+  }];
+  const lonA = (a.minLon + a.maxLon) / 2;
+  const open = (centerLon, tag, created) => openMap(bufferSource(buildTestMap({ lat, lon: centerLon, created, ways: fill(tag, centerLon) })));
+  const mapA = open(lonA, 'landuse=forest', 2000);
+  const mapB = open(lonA + span, 'natural=water', 2000);
+  const old = open(lonA, 'natural=water', 1000);
+
+  // at the border of A and B
+  const { fb, drawn, tiles } = renderNaviScreen({ maps: [old, mapB, mapA], lat, lon: a.maxLon });
+  assert.equal(drawn.length, 2);
+  assert.ok(drawn.includes(mapA) && drawn.includes(mapB));
+  assert.equal(tiles, 2);
+  const count = (ink) => fb.pixels.filter((pixel) => pixel === ink).length;
+  // the position is at x = 97 on the device, A is left of it
+  assert.ok(count(GREEN) > 20000, 'the forest of A');
+  assert.ok(count(BLUE) > 50000, 'the lake of B');
+
+  // only the old map: its lake is drawn where A has the forest
+  assert.equal(renderNaviScreen({ maps: [old], lat, lon: a.maxLon }).drawn.length, 1);
+});
+
 test('a track gets its line and the height graph', () => {
   const line = Array.from({ length: 40 }, (_, i) => [LON - 0.002 + i * 0.0001, LAT, 200 + i * 5]);
-  const withTrack = renderNaviScreen({ map: null, lat: LAT, lon: LON, track: { name: 'Felsenland', lines: [line] }, trackColor: RED });
-  const without = renderNaviScreen({ map: null, lat: LAT, lon: LON, showHeightGraph: false });
+  const withTrack = renderNaviScreen({ lat: LAT, lon: LON, track: { name: 'Felsenland', lines: [line] }, trackColor: RED });
+  const without = renderNaviScreen({ lat: LAT, lon: LON, showHeightGraph: false });
   const reds = (fb) => fb.pixels.filter((ink) => ink === RED).length;
   assert.ok(reds(withTrack.fb) > reds(without.fb) + 100);
   // the graph frame is above the info strip

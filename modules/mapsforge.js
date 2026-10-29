@@ -603,14 +603,11 @@ const projectRing = (projection, block, view) => {
 
 const SEA_STYLE = makeStyle({ kind: 'area', color: WATER, order: order.SEA });
 
-// Collects the shapes of all visible tiles and sorts them into the drawing order of the firmware.
-// Returns { commands, labels, tiles }: commands are { shape: 'polygon' | 'line' | 'point', style, rings }, rings are
-// flat [x0, y0, x1, y1, ...] arrays, labels are { x, y, text, rank }. tiles is the number of tiles with data.
-export const collectScene = (map, view) => {
+// Adds the shapes of the visible tiles of a map to the scene
+const collectMap = (map, view, scene) => {
   const subFile = subFileForZoom(map.header, view.zoom);
-  const scene = { commands: [], labels: [], tiles: 0 };
   if (subFile < 0) {
-    return scene;
+    return;
   }
   const baseZoom = map.header.zoomIntervals[subFile].baseZoom;
   const range = visibleTiles(view, baseZoom);
@@ -686,7 +683,21 @@ export const collectScene = (map, view) => {
       }
     }
   }
-  // stable: the order of the file within the same layer and style order
+};
+
+// Collects the shapes of all visible tiles of one map or a list of maps and sorts them into the drawing order of the
+// firmware. The shapes of several maps are sorted together, so where two maps overlap the land of one lies below the
+// forests and roads of the other, as within one map (Scene of mapsforge-rs).
+// view is the view of makeView, or a function that returns the view for a map (the tile size is part of the header of
+// a map, as the firmware does it). Returns { commands, labels, tiles }: commands are { shape: 'polygon' | 'line' |
+// 'point', style, rings }, rings are flat [x0, y0, x1, y1, ...] arrays, labels are { x, y, text, rank }. tiles is the
+// number of tiles with data.
+export const collectScene = (maps, view) => {
+  const scene = { commands: [], labels: [], tiles: 0 };
+  for (const map of Array.isArray(maps) ? maps : [maps]) {
+    collectMap(map, typeof view === 'function' ? view(map) : view, scene);
+  }
+  // stable: the order of the maps and the files within the same layer and style order
   scene.commands.sort((a, b) => a.key - b.key);
   // names on top of everything, the most important first
   scene.labels.sort((a, b) => a.rank - b.rank);
@@ -745,9 +756,9 @@ export const drawScene = (scene, target) => {
   }
 };
 
-// Draws the map at the view into the target, returns the number of tiles with data
-export const renderMap = (map, view, target) => {
-  const scene = collectScene(map, view);
+// Draws one map or a list of maps at the view into the target, returns the number of tiles with data
+export const renderMap = (maps, view, target) => {
+  const scene = collectScene(maps, view);
   drawScene(scene, target);
   return scene.tiles;
 };
