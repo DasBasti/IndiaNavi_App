@@ -3,6 +3,7 @@
 
 import { Directory, File, Paths } from 'expo-file-system';
 
+import { closeNativeMap, isNativeMapsforge, openNativeMap, renderNativeMaps } from './indianavi-mapsforge';
 import { openMap } from './mapsforge';
 
 const PART = '.part';
@@ -43,7 +44,12 @@ export const deleteMap = (name) => {
   }
 };
 
+// Path of a map for native code, the folder of the app has no characters that need encoding in its URI
+const mapPath = (name) => `${decodeURIComponent(mapsDirectory().uri.replace(/^file:\/\//, '')).replace(/\/?$/, '/')}${name}`;
+
 // Opens a map on the phone, returns the map of mapsforge.js with a close() for its file handle.
+// In a build of the app it is drawn by mapsforge-rs: native is { id, render } of indianavi-mapsforge, mapsforge.js
+// only reads the header.
 // Throws if the file is missing or not a Mapsforge map.
 export const openMapFile = (name) => {
   const file = mapFile(name);
@@ -58,13 +64,22 @@ export const openMapFile = (name) => {
       return handle.readBytes(Math.min(length, file.size - offset));
     },
   };
+  let map;
   try {
-    const map = openMap(source);
-    return { ...map, name, close: () => handle.close() };
+    map = openMap(source);
   } catch (e) {
     handle.close();
     throw e;
   }
+  if (!isNativeMapsforge) {
+    return { ...map, name, close: () => handle.close() };
+  }
+  handle.close();
+  const id = openNativeMap(mapPath(name));
+  // the size stays for the transfer to the IndiaNavi
+  return {
+    ...map, source: { size: source.size }, name, native: { id, render: renderNativeMaps }, close: () => closeNativeMap(id),
+  };
 };
 
 // Downloads a map. It is written to a .part file first, so an interrupted download never looks like a map. onProgress

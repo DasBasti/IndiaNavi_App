@@ -16,4 +16,5 @@ web-build/
 # build output of local Expo modules
 modules/*/android/build/
 modules/*/android/.gradle/
+modules/*/android/.cxx/
 __pycache__/

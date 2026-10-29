@@ -9,6 +9,8 @@
 #   --install  install the APK on the connected device with adb
 #   --clean    run gradle clean before the build
 #
+# Needs Rust (rustup, cargo) for the map renderer, the Android targets are added when missing.
+#
 # The upload key is set in ~/.gradle/gradle.properties with
 # WANDERNAVI_UPLOAD_STORE_FILE, WANDERNAVI_UPLOAD_STORE_PASSWORD,
 # WANDERNAVI_UPLOAD_KEY_ALIAS and WANDERNAVI_UPLOAD_KEY_PASSWORD.
@@ -61,6 +63,25 @@ fi
 if [ -z "${JAVA_HOME:-}" ]; then
     echo "No JDK 17 or 21 found, using $(java -version 2>&1 | head -1)" >&2
     echo "If the build fails, install jdk21-openjdk or set JAVA_HOME" >&2
+fi
+
+# the vector maps are drawn by mapsforge-rs (modules/indianavi-mapsforge), built with cargo for the ABIs of the app
+if [ ! -f modules/indianavi-mapsforge/mapsforge-rs/Cargo.toml ]; then
+    echo "Fetching mapsforge-rs"
+    git submodule update --init modules/indianavi-mapsforge/mapsforge-rs
+fi
+if ! command -v cargo >/dev/null; then
+    echo "cargo not found, install Rust with rustup" >&2
+    exit 1
+fi
+rust_targets=(aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android)
+missing_targets=()
+for target in "${rust_targets[@]}"; do
+    rustup target list --installed | grep -qx "$target" || missing_targets+=("$target")
+done
+if [ ${#missing_targets[@]} -gt 0 ]; then
+    echo "Installing the Rust targets ${missing_targets[*]}"
+    rustup target add "${missing_targets[@]}"
 fi
 
 if [ ! -d node_modules ] || [ package.json -nt node_modules ] || [ yarn.lock -nt node_modules ]; then
