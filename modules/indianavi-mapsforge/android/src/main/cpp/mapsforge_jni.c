@@ -1,8 +1,8 @@
 /*
  * JNI of the native map renderer: opens Mapsforge maps with mapsforge-rs and draws the shapes of
  * several maps into a framebuffer of inks (0 black ... 6 orange) with mfr_raster.c, the way
- * src/linux/vector_map.c of the firmware does it. The names of places are handed back to Kotlin,
- * the app places them with its own font.
+ * src/linux/vector_map.c of the firmware does it. The names of places and the icons of POIs are
+ * handed back to Kotlin, the app draws them with its own font and pictures.
  */
 
 #include <jni.h>
@@ -28,8 +28,9 @@ typedef struct {
     mfr_raster_t raster;
     uint8_t* pixels;
     JNIEnv* env;
-    jobject labels;
+    jobject sink;
     jmethodID label;
+    jmethodID icon;
 } render_t;
 
 static ssize_t io_read(void* ctx, uint8_t* buf, size_t len)
@@ -90,8 +91,17 @@ static void draw_label(void* ctx, mfr_point_t at, const char* text, uint32_t len
     if (!bytes)
         return;
     (*env)->SetByteArrayRegion(env, bytes, 0, (jsize)len, (const jbyte*)text);
-    (*env)->CallVoidMethod(env, r->labels, r->label, (jint)at.x, (jint)at.y, bytes, (jint)rank);
+    (*env)->CallVoidMethod(env, r->sink, r->label, (jint)at.x, (jint)at.y, bytes, (jint)rank);
     (*env)->DeleteLocalRef(env, bytes);
+}
+
+static void draw_icon(void* ctx, mfr_point_t at, uint8_t icon)
+{
+    render_t* r = ctx;
+    JNIEnv* env = r->env;
+    if ((*env)->ExceptionCheck(env))
+        return;
+    (*env)->CallVoidMethod(env, r->sink, r->icon, (jint)at.x, (jint)at.y, (jint)icon);
 }
 
 JNIEXPORT jlong JNICALL Java_tech_platinenmacher_indianavimapsforge_MapsforgeNative_open(
@@ -134,11 +144,12 @@ JNIEXPORT void JNICALL Java_tech_platinenmacher_indianavimapsforge_MapsforgeNati
 }
 
 /* Draws the maps (in this order into one scene) into pixels, a direct buffer of width x height
- * inks that holds the background already, and calls labels.label(x, y, utf8, rank) for the
- * names of places, the most important first. Returns the number of tiles read. */
+ * inks that holds the background already, and calls sink.label(x, y, utf8, rank) for the names
+ * of places, the most important first, and sink.icon(x, y, icon) for the POIs with an icon
+ * (MFR_ICON_*). Returns the number of tiles read. */
 JNIEXPORT jint JNICALL Java_tech_platinenmacher_indianavimapsforge_MapsforgeNative_render(
     JNIEnv* env, jclass cls, jlongArray handles, jdouble lat, jdouble lon, jint zoom, jint width,
-    jint height, jint anchor_x, jint anchor_y, jobject pixels, jobject labels)
+    jint height, jint anchor_x, jint anchor_y, jobject pixels, jobject sink)
 {
     uint8_t* buffer = (*env)->GetDirectBufferAddress(env, pixels);
     if (!buffer || width <= 0 || height <= 0 || width > INT16_MAX || height > INT16_MAX
@@ -170,9 +181,11 @@ JNIEXPORT jint JNICALL Java_tech_platinenmacher_indianavimapsforge_MapsforgeNati
         tiles += read;
     }
 
-    /* the method is kept by name in a minified build by proguard-rules.pro */
-    jmethodID label = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, labels), "label", "(II[BI)V");
-    if (!label) {
+    /* the methods are kept by name in a minified build by proguard-rules.pro */
+    jclass sink_class = (*env)->GetObjectClass(env, sink);
+    jmethodID label = (*env)->GetMethodID(env, sink_class, "label", "(II[BI)V");
+    jmethodID icon = label ? (*env)->GetMethodID(env, sink_class, "icon", "(III)V") : NULL;
+    if (!icon) {
         mfr_scene_free(scene);
         return 0;
     }
@@ -180,8 +193,9 @@ JNIEXPORT jint JNICALL Java_tech_platinenmacher_indianavimapsforge_MapsforgeNati
         .raster = { .span = span, .width = width, .height = height, .white = WHITE },
         .pixels = buffer,
         .env = env,
-        .labels = labels,
+        .sink = sink,
         .label = label,
+        .icon = icon,
     };
     r.raster.ctx = &r;
     mfr_draw_t draw = {
@@ -190,6 +204,7 @@ JNIEXPORT jint JNICALL Java_tech_platinenmacher_indianavimapsforge_MapsforgeNati
         .polyline = draw_polyline,
         .point = draw_point,
         .label = draw_label,
+        .icon = draw_icon,
     };
     mfr_scene_draw(scene, MFR_PALETTE_EINK7, &draw);
     mfr_scene_free(scene);

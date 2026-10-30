@@ -8,9 +8,11 @@ import expo.modules.kotlin.records.Record
 import expo.modules.kotlin.typedarray.Uint8Array
 import java.nio.ByteBuffer
 
-// Receives the names of places of a render: x, y, the name as UTF-8 and its rank (1 city … 4 hamlet)
-fun interface LabelSink {
+// Receives what a render leaves to the app: the names of places (x, y, the name as UTF-8 and its rank, 1 city … 4 hamlet)
+// and the icons of POIs (x, y of the middle and the MFR_ICON_* of mapsforge.h)
+interface RenderSink {
   fun label(x: Int, y: Int, text: ByteArray, rank: Int)
+  fun icon(x: Int, y: Int, icon: Int)
 }
 
 // The view of a render: lat, lon is at pixel anchorX, anchorY of the width x height pixels
@@ -36,7 +38,7 @@ internal object MapsforgeNative {
 
   @JvmStatic external fun render(
     handles: LongArray, lat: Double, lon: Double, zoom: Int, width: Int, height: Int, anchorX: Int, anchorY: Int,
-    pixels: ByteBuffer, labels: LabelSink
+    pixels: ByteBuffer, sink: RenderSink
   ): Int
 }
 
@@ -64,20 +66,28 @@ class IndiaNaviMapsforgeModule : Module() {
     }
 
     // Draws the maps (ids of open, drawn in this order into one scene) into pixels, the framebuffer of width x height
-    // inks with the background. Returns { tiles, labels: [{ x, y, text, rank }] }, the names of places to draw on top,
-    // the most important first.
+    // inks with the background. Returns { tiles, labels: [{ x, y, text, rank }], icons: [{ x, y, icon }] }, the names of
+    // places (the most important first) and the icons of POIs (MFR_ICON_*) to draw on top.
     Function("render") { ids: List<Int>, view: View, pixels: Uint8Array ->
       val handles = synchronized(maps) {
         ids.map { maps[it] ?: throw IllegalArgumentException("The map $it is closed") }.toLongArray()
       }
       val labels = mutableListOf<Map<String, Any>>()
+      val icons = mutableListOf<Map<String, Any>>()
       val tiles = MapsforgeNative.render(
         handles, view.lat, view.lon, view.zoom, view.width, view.height, view.anchorX, view.anchorY,
-        pixels.toDirectBuffer()
-      ) { x, y, text, rank ->
-        labels.add(mapOf("x" to x, "y" to y, "text" to String(text, Charsets.UTF_8), "rank" to rank))
-      }
-      mapOf("tiles" to tiles, "labels" to labels)
+        pixels.toDirectBuffer(),
+        object : RenderSink {
+          override fun label(x: Int, y: Int, text: ByteArray, rank: Int) {
+            labels.add(mapOf("x" to x, "y" to y, "text" to String(text, Charsets.UTF_8), "rank" to rank))
+          }
+
+          override fun icon(x: Int, y: Int, icon: Int) {
+            icons.add(mapOf("x" to x, "y" to y, "icon" to icon))
+          }
+        }
+      )
+      mapOf("tiles" to tiles, "labels" to labels, "icons" to icons)
     }
 
     // Puts the framebuffer pixels (width x height inks) as the frame of key, colors are 0xRRGGBB by ink. The

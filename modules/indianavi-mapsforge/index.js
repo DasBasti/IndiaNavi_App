@@ -11,8 +11,9 @@ export const openNativeMap = (path) => IndiaNaviMapsforge.open(path);
 export const closeNativeMap = (id) => IndiaNaviMapsforge.close(id);
 
 // Draws the maps (ids, in this order into one scene) at the view ({ lat, lon, zoom, width, height, anchorX, anchorY })
-// into pixels, a Uint8Array of width x height inks with the background. Returns { tiles, labels }: labels are
-// { x, y, text, rank } of the names of places to draw on top, the most important first.
+// into pixels, a Uint8Array of width x height inks with the background. Returns { tiles, labels, icons }: labels are
+// { x, y, text, rank } of the names of places to draw on top, the most important first, icons are { x, y, icon } of the
+// POIs to draw on top, icon is an MFR_ICON_* of mapsforge.h.
 export const renderNativeMaps = (ids, view, pixels) => IndiaNaviMapsforge.render(ids, view, pixels);
 
 // Shows a framebuffer (Uint8Array of width x height inks) sharp in a view, without a PNG: setFrame puts the pixels
