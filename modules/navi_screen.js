@@ -2,12 +2,12 @@
 // with the track, its direction arrows and the position marker, the top bar, the scale, the copyright notice, the
 // height graph and the black info strip at the bottom. The app shows it as a simulated display.
 
-import { ICONS, ICON_SIZE } from './icons.js';
+import { ICON_SIZE } from './icons.js';
 import { MAX_DRAWN, screenBounds, selectMaps } from './map_catalog.js';
 import { makeView, renderMap } from './mapsforge.js';
 import {
-  BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawText, fillRect, labelPlacer, line, makeFramebuffer, rasterTarget,
-  setPixel, textWidth,
+  BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawIcon, drawText, fillRect, labelPlacer, line, makeFramebuffer,
+  rasterTarget, setPixel, textWidth,
 } from './navi_raster.js';
 import { lat2world, lon2world } from './tiles.js';
 
@@ -46,16 +46,6 @@ const ARROW_LOOKAHEAD = 12;
 const ARROW_MARGIN = 5;
 
 const COPYRIGHT = '(c) OpenStreetMap contributors';
-
-const drawIcon = (fb, name, left, top) => {
-  ICONS[name]?.forEach((row, y) => {
-    for (let x = 0; x < row.length; x++) {
-      if (row[x] !== '7') {
-        setPixel(fb, left + x, top + y, Number(row[x]));
-      }
-    }
-  });
-};
 
 // An icon with a text right of it, returns the right edge of the text
 const iconWithText = (fb, name, left, text = '') => {

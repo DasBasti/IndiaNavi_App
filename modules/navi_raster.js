@@ -3,6 +3,7 @@
 // and the place names like lib/Platinenmacher/gui/map_labels.c, so the picture matches the display pixel by pixel.
 
 import { FIRST_CHAR, GLYPHS, LAST_CHAR } from './font8x8.js';
+import { ICONS, ICON_SIZE } from './icons.js';
 import { B_BACKGROUND, B_TRANSPARENT, PATTERN_MASKS, SOLID, bCode, inkA, patternOf } from './vector_style.js';
 
 export const BLACK = 0;
@@ -285,10 +286,26 @@ export const labelPlacer = (fb) => {
   };
 };
 
+// Draws an icon (rows of ink digits, 7 is transparent) with its top-left corner at left, top. Returns false for an
+// unknown icon.
+export const drawIcon = (fb, name, left, top) => {
+  const rows = ICONS[name];
+  rows?.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] !== '7') {
+        setPixel(fb, left + x, top + y, Number(row[x]));
+      }
+    }
+  });
+  return Boolean(rows);
+};
+
 // The target of drawScene (mapsforge.js) that draws into the framebuffer
 export const rasterTarget = (fb) => ({
   fillPolygon: (rings, paint) => fillPolygon(fb, rings, paint),
   polyline: (points, paint, width) => polyline(fb, points, paint, width),
   point: (x, y, paint, radius) => disc(fb, x, y, radius, paint),
   label: labelPlacer(fb),
+  // the map icons of the POIs, centered on the position like map_icons_draw of the firmware
+  icon: (x, y, name) => drawIcon(fb, `poi_${name}`, x - ICON_SIZE / 2, y - ICON_SIZE / 2),
 });

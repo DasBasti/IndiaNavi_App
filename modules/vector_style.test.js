@@ -160,6 +160,9 @@ const stylesheetRules = (text) => {
           case 'symbol':
             fields.symbol = setting;
             break;
+          case 'icon':
+            fields.icon = setting;
+            break;
           default:
             throw new Error(`unknown property ${name} in: ${line}`);
         }

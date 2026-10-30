@@ -104,7 +104,14 @@ export const LABEL_RANKS = 4;
 // kind: 'line', 'area' (filled when closed) or 'poi'. width is the line width in pixels or the radius of a symbol,
 // outline the ink of the 1 px line around areas and the ring around symbols, casing the white pixels on each side
 // of a line, minZoom hides it on lower zoom levels, shrink makes it one pixel thinner below zoom 15, label is the
-// importance of a place name (1 = city, 0 = no name).
+// importance of a place name (1 = city, 0 = no name). icon is the name of a picture (poi_<icon> in modules/icons.js,
+// ICON_NAMES) that is drawn instead of the symbol of a POI.
+// The icons of POIs, same names as the icons of the firmware (lib/icons_16, MFR_ICON_* in mapsforge.h)
+export const ICON_NAMES = [
+  'drinking_water', 'spring', 'food', 'supermarket', 'pharmacy', 'hospital', 'train', 'bus', 'tram', 'parking', 'castle',
+  'tower', 'other',
+];
+
 export const BASE = {
   kind: 'line',
   color: 0,
@@ -113,6 +120,7 @@ export const BASE = {
   outline: null,
   casing: 0,
   symbol: 'disc',
+  icon: null,
   minZoom: 0,
   shrink: false,
   label: 0,
@@ -132,6 +140,8 @@ export const minorRoad = (color, width, ord) =>
   style({ color, width, order: ord, casing: 1, shrink: true, minZoom: ZOOM_100M });
 export const poi = (symbol, color, radius, minZoom) =>
   style({ kind: 'poi', color, width: radius, order: order.POI, outline: BLACK, symbol, minZoom });
+// A POI that is drawn as an icon
+export const marked = (icon, fields) => ({ ...fields, icon });
 // Place name: no symbol, the name is drawn
 export const place = (rank, minZoom) => style({ kind: 'poi', order: order.POI, minZoom, label: rank });
 // Black symbol with a white ring, so it stays apart from the black paths
@@ -295,30 +305,30 @@ export const POI_RULES = [
   ['tourism', 'camp_site', poi('square', solid(RED), 3, 15)],
   ['tourism', 'hostel', poi('square', solid(RED), 3, 15)],
   ['tourism', 'hotel*', poi('square', solid(RED), 3, 15)],
-  ['amenity', 'drinking_water', poi('disc', solid(BLUE), 3, 0)],
-  ['natural', 'spring', poi('disc', solid(BLUE), 3, 0)],
-  ['amenity', 'restaurant*', poi('disc', solid(ORANGE), 3, 15)],
-  ['amenity', 'cafe', poi('disc', solid(ORANGE), 3, 15)],
-  ['amenity', 'pub', poi('disc', solid(ORANGE), 3, 15)],
-  ['amenity', 'bar', poi('disc', solid(ORANGE), 3, 15)],
-  ['amenity', 'fast_food*', poi('disc', solid(ORANGE), 3, 15)],
-  ['shop', 'supermarket', poi('square', solid(ORANGE), 3, 15)],
-  ['amenity', 'pharmacy', poi('disc', solid(RED), 3, 15)],
-  ['amenity', 'hospital', poi('disc', solid(RED), 4, 0)],
-  ['railway', 'station', poi('square', solid(BLACK), 3, 0)],
-  ['railway', 'halt', poi('square', solid(BLACK), 3, 0)],
-  ['highway', 'bus_stop', poi('square', solid(WHITE), 2, 15)],
-  ['railway', 'tram_stop', poi('square', solid(WHITE), 2, 15)],
-  ['amenity', 'parking', poi('square', solid(BLUE), 3, 15)],
+  ['amenity', 'drinking_water', marked('drinking_water', poi('disc', solid(BLUE), 3, 0))],
+  ['natural', 'spring', marked('spring', poi('disc', solid(BLUE), 3, 0))],
+  ['amenity', 'restaurant*', marked('food', poi('disc', solid(ORANGE), 3, 15))],
+  ['amenity', 'cafe', marked('food', poi('disc', solid(ORANGE), 3, 15))],
+  ['amenity', 'pub', marked('food', poi('disc', solid(ORANGE), 3, 15))],
+  ['amenity', 'bar', marked('food', poi('disc', solid(ORANGE), 3, 15))],
+  ['amenity', 'fast_food*', marked('food', poi('disc', solid(ORANGE), 3, 15))],
+  ['shop', 'supermarket', marked('supermarket', poi('square', solid(ORANGE), 3, 15))],
+  ['amenity', 'pharmacy', marked('pharmacy', poi('disc', solid(RED), 3, 15))],
+  ['amenity', 'hospital', marked('hospital', poi('disc', solid(RED), 4, 0))],
+  ['railway', 'station', marked('train', poi('square', solid(BLACK), 3, 0))],
+  ['railway', 'halt', marked('train', poi('square', solid(BLACK), 3, 0))],
+  ['highway', 'bus_stop', marked('bus', poi('square', solid(WHITE), 2, 15))],
+  ['railway', 'tram_stop', marked('tram', poi('square', solid(WHITE), 2, 15))],
+  ['amenity', 'parking', marked('parking', poi('square', solid(BLUE), 3, 15))],
   ['tourism', 'information', poi('square', solid(YELLOW), 2, 15)],
   ['tourism', 'picnic_site', poi('disc', solid(GREEN), 2, 15)],
-  ['historic', 'castle', poiPlain('disc', solid(BLACK), 3, 0)],
-  ['man_made', 'tower', poiPlain('disc', solid(BLACK), 2, 0)],
-  ['man_made', 'windmill', poiPlain('disc', solid(BLACK), 2, 0)],
-  ['man_made', 'lighthouse', poiPlain('disc', solid(BLACK), 2, 0)],
-  ['amenity', 'place_of_worship', poiPlain('disc', solid(BLACK), 2, 15)],
-  ['historic', 'monument', poiPlain('disc', solid(BLACK), 2, 15)],
-  ['tourism', 'attraction', poiPlain('disc', solid(BLACK), 2, 15)],
+  ['historic', 'castle', marked('castle', poiPlain('disc', solid(BLACK), 3, 0))],
+  ['man_made', 'tower', marked('tower', poiPlain('disc', solid(BLACK), 2, 0))],
+  ['man_made', 'windmill', marked('tower', poiPlain('disc', solid(BLACK), 2, 0))],
+  ['man_made', 'lighthouse', marked('tower', poiPlain('disc', solid(BLACK), 2, 0))],
+  ['amenity', 'place_of_worship', marked('other', poiPlain('disc', solid(BLACK), 2, 15))],
+  ['historic', 'monument', marked('other', poiPlain('disc', solid(BLACK), 2, 15))],
+  ['tourism', 'attraction', marked('other', poiPlain('disc', solid(BLACK), 2, 15))],
 ];
 
 const matches = (pattern, value) =>
@@ -499,7 +509,8 @@ export const POI_GROUPS = rows(POI_RULES, [
   {
     title: 'Water',
     rows: [
-      { name: 'Drinking water, spring', tags: ['amenity=drinking_water', 'natural=spring'] },
+      { name: 'Drinking water', tags: ['amenity=drinking_water'] },
+      { name: 'Spring', tags: ['natural=spring'] },
     ],
   },
   {
@@ -518,7 +529,8 @@ export const POI_GROUPS = rows(POI_RULES, [
     title: 'Transport',
     rows: [
       { name: 'Train station, halt', tags: ['railway=station', 'railway=halt'] },
-      { name: 'Bus or tram stop', tags: ['highway=bus_stop', 'railway=tram_stop'] },
+      { name: 'Bus stop', tags: ['highway=bus_stop'] },
+      { name: 'Tram stop', tags: ['railway=tram_stop'] },
       { name: 'Parking', tags: ['amenity=parking'] },
     ],
   },

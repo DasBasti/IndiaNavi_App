@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Polygon } from 'react-native-svg';
 
+import Icon from './Icon';
 import { Card, Hint, SectionTitle } from './ui';
 import { InfoRow, SCALE, ScaleBadge, styles } from './vector_info';
 import { colors, displayColor, font } from '../theme';
@@ -18,9 +19,13 @@ const polygon = (shape, mid, r) => {
   return points.map(([x, y]) => `${mid + x * SCALE},${mid + y * SCALE}`).join(' ');
 };
 
-// A marker as on the display: a disc, square, triangle or diamond of the style's ink and radius with a ring of one
+// A marker as on the display: an icon, or a disc, square, triangle or diamond of the style's ink and radius with a ring of one
 // pixel around it, black around colored symbols, white around black ones
 export const PoiSymbol = ({ style }) => {
+  // POIs with an icon are drawn as that picture, the IndiaNavi has no symbol for them if it has icons
+  if (style.icon !== null) {
+    return <Icon name={`poi_${style.icon}`} size={BOX} />;
+  }
   const mid = BOX / 2;
   const ink = displayColor(inkA(style.color));
   const ring = displayColor(style.outline);

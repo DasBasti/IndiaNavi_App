@@ -3,7 +3,9 @@ import test from 'node:test';
 
 import { bufferSource, openMap } from './mapsforge.js';
 import { buildTestMap, testTileBounds } from './mapsforge_test_map.js';
-import { BLACK, WHITE, fillPolygon, labelPlacer, makeFramebuffer, polyline, toAscii } from './navi_raster.js';
+import {
+  BLACK, WHITE, fillPolygon, labelPlacer, makeFramebuffer, polyline, rasterTarget, toAscii,
+} from './navi_raster.js';
 import { NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, renderNaviScreen } from './navi_screen.js';
 import { BLUE, GREEN, P50, RED, tint } from './vector_style.js';
 
@@ -23,6 +25,16 @@ test('polygons are filled with the pattern at the screen position', () => {
   fillPolygon(holes, [[0, 0, 8, 0, 8, 8, 0, 8], [2, 2, 6, 2, 6, 6, 2, 6]], BLUE);
   assert.equal(at(holes, 1, 1), BLUE);
   assert.equal(at(holes, 4, 4), WHITE);
+});
+
+test('map icons are centered on the position, transparent pixels keep the ground', () => {
+  const fb = makeFramebuffer(40, 40);
+  assert.equal(rasterTarget(fb).icon(20, 20, 'hospital'), true);
+  // the icon covers 12..27, its corner is transparent and the border of the sign black
+  assert.equal(at(fb, 12, 12), WHITE);
+  assert.equal(at(fb, 13, 13), BLACK);
+  assert.equal(at(fb, 20, 20), RED);
+  assert.equal(rasterTarget(fb).icon(20, 20, 'no_such_icon'), false);
 });
 
 test('wide lines cover their width', () => {

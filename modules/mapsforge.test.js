@@ -3,8 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
-  MapError, bufferSource, collectScene, decodeUtf8, makeView, mapCenter, mapCovers, openMap, parseHeader, tileAt,
-  visitTile,
+  MapError, bufferSource, collectScene, decodeUtf8, drawScene, makeView, mapCenter, mapCovers, openMap, parseHeader,
+  tileAt, visitTile,
 } from './mapsforge.js';
 import { buildTestMap, testTileBounds } from './mapsforge_test_map.js';
 import { lat2tile, lon2tile } from './tiles.js';
@@ -117,6 +117,32 @@ test('the shapes are sorted into the drawing order of the firmware', () => {
   const far = collectScene(map, view(14));
   assert.ok(!far.commands.some(({ shape }) => shape === 'point'));
   assert.equal(far.commands.find(({ style }) => style.order === order.ROAD).style.width, 1);
+});
+
+test('POIs with an icon are drawn as the icon, or as the symbol by a target without icons', () => {
+  const map = testMap({
+    pois: [
+      { lat: LAT, lon: LON, tags: ['amenity=drinking_water'] },
+      { lat: LAT + 0.001, lon: LON, tags: ['natural=peak'] },
+    ],
+  });
+  const scene = collectScene(map, view(16));
+  const icons = [];
+  const shapes = [];
+  const target = {
+    fillPolygon: () => shapes.push('polygon'),
+    polyline: () => shapes.push('line'),
+    point: () => shapes.push('point'),
+    label: () => {},
+  };
+  drawScene(scene, { ...target, icon: (x, y, name) => icons.push(name) > 0 });
+  // the peak has no icon: its symbol is drawn (a triangle with its ring)
+  assert.deepEqual(icons, ['drinking_water']);
+  assert.deepEqual(shapes, ['polygon', 'polygon']);
+
+  shapes.length = 0;
+  drawScene(scene, target);
+  assert.deepEqual(shapes, ['point', 'point', 'polygon', 'polygon']);
 });
 
 test('the position is drawn at the anchor of the view', () => {

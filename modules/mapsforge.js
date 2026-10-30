@@ -719,11 +719,15 @@ const symbolRing = (symbol, x, y, r) => {
 };
 
 // Draws the scene with a target { fillPolygon(rings, paint), polyline(points, paint, width), point(x, y, paint, radius),
-// label(x, y, text, rank) }, back to front, like the firmware hands it to its rasterizer
+// label(x, y, text, rank), icon(x, y, name) }, back to front, like the firmware hands it to its rasterizer. icon is
+// optional, it draws the picture of a POI centered on x, y and returns true; without it the symbols are drawn.
 export const drawScene = (scene, target) => {
   for (const { shape, style, rings } of scene.commands) {
     if (shape === 'point') {
       const [x, y] = rings[0];
+      if (style.icon !== null && target.icon?.(x, y, style.icon)) {
+        continue;
+      }
       if (style.symbol === 'disc') {
         if (style.outline !== null) {
           target.point(x, y, solid(style.outline), style.width + 1);
