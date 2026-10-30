@@ -6,10 +6,10 @@ import { ICON_SIZE } from './icons.js';
 import { MAX_DRAWN, screenBounds, selectMaps } from './map_catalog.js';
 import { makeView, renderMap } from './mapsforge.js';
 import {
-  BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawIcon, drawText, fillRect, labelPlacer, line, makeFramebuffer,
+  BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawIcon, drawText, fillRect, line, makeFramebuffer,
   rasterTarget, setPixel, textWidth,
 } from './navi_raster.js';
-import { lat2world, lon2world } from './tiles.js';
+import { lat2world, lon2world, world2lat, world2lon } from './tiles.js';
 
 const GREEN = 2;
 const BLUE = 3;
@@ -24,6 +24,13 @@ const TILE = 256;
 // The map is a grid of 3x3 tiles, the tile with the position is the one in the middle
 const MAP_LEFT = -159;
 const MAP_TOP = -85;
+
+// Where the app draws the place it shows, the device has its position in the tile in the middle of the 3x3 tiles
+const CENTER_X = SCREEN_WIDTH / 2;
+const CENTER_Y = SCREEN_HEIGHT / 2;
+
+// length of the equator in meters
+const EQUATOR = 40075016.686;
 
 // The two scales the button switches between: zoom level, width of the scale and its text
 export const NAVI_ZOOMS = [
@@ -47,6 +54,12 @@ const ARROW_MARGIN = 5;
 
 const COPYRIGHT = '(c) OpenStreetMap contributors';
 
+// The icon names by the MFR_ICON_* of mapsforge.h, the native renderer leaves the pictures to the app
+const NATIVE_ICONS = [
+  null, 'drinking_water', 'spring', 'food', 'supermarket', 'pharmacy', 'hospital', 'train', 'bus', 'tram', 'parking',
+  'castle', 'tower', 'other',
+];
+
 // An icon with a text right of it, returns the right edge of the text
 const iconWithText = (fb, name, left, text = '') => {
   drawIcon(fb, name, left, MARGIN);
@@ -55,57 +68,58 @@ const iconWithText = (fb, name, left, text = '') => {
   return textLeft + textWidth(text);
 };
 
-const topBar = (fb, { battery, satellites }) => {
+const topBar = (fb, { battery, satellites, hasPosition }) => {
   fillRect(fb, 0, 0, SCREEN_WIDTH, TOP_BAR_HEIGHT, WHITE);
   line(fb, 0, 0, SCREEN_WIDTH - 1, 0, BLACK);
   line(fb, 0, TOP_BAR_HEIGHT - 1, SCREEN_WIDTH - 1, TOP_BAR_HEIGHT - 1, BLACK);
   line(fb, 0, 0, 0, TOP_BAR_HEIGHT - 1, BLACK);
   line(fb, SCREEN_WIDTH - 1, 0, SCREEN_WIDTH - 1, TOP_BAR_HEIGHT - 1, BLACK);
 
-  const level = [0, 10, 30, 50, 80, 100].filter((step) => step <= battery).pop() ?? 0;
-  drawIcon(fb, `bat_${level}`, MARGIN, MARGIN);
-  drawText(fb, MARGIN + ICON_SIZE + 1, MARGIN + 1, `${battery}%`, BLACK);
-  const north = MARGIN + ICON_SIZE + textWidth(`${battery}%`) + MARGIN_WIDE;
-  // the WiFi is off while the device is not charging, so its place stays empty, Bluetooth advertises
-  const wifi = iconWithText(fb, 'norden', north) + MARGIN_WIDE;
-  const bluetooth = wifi + ICON_SIZE + MARGIN + MARGIN_WIDE;
-  drawIcon(fb, 'BLE', bluetooth, MARGIN);
+  // a battery that is not known has no icon
+  const percent = battery === null ? '' : `${battery}%`;
+  if (battery !== null) {
+    const level = [0, 10, 30, 50, 80, 100].filter((step) => step <= battery).pop() ?? 0;
+    drawIcon(fb, `bat_${level}`, MARGIN, MARGIN);
+    drawText(fb, MARGIN + ICON_SIZE + 1, MARGIN + 1, percent, BLACK);
+  }
+  drawIcon(fb, 'norden', MARGIN + ICON_SIZE + textWidth(percent) + MARGIN_WIDE, MARGIN);
 
   const gps = SCREEN_WIDTH - ICON_SIZE - 2 * MARGIN - 16;
-  iconWithText(fb, 'GPS_lock', gps, String(satellites));
-  drawIcon(fb, 'SD', gps - 2 * ICON_SIZE - MARGIN, MARGIN);
+  const icon = satellites > 0 ? 'GPS_lock' : hasPosition ? 'GPS_search' : 'noGPS';
+  iconWithText(fb, icon, gps, satellites === null ? '' : String(satellites));
 };
 
-// Position of the track points on the screen: points outside of the 3x3 tiles are not active
-const placeTrack = (lines, zoom, centerTileX, centerTileY) => {
-  const n = 2 ** zoom;
-  return lines.map((points) => points.map(([lon, lat]) => {
-    const worldX = lon2world(lon) * n;
-    const worldY = lat2world(lat) * n;
-    const tx = Math.floor(worldX) - (centerTileX - 1);
-    const ty = Math.floor(worldY) - (centerTileY - 1);
-    const active = tx >= 0 && tx < 3 && ty >= 0 && ty < 3;
-    return {
-      x: tx * TILE + Math.floor((worldX % 1) * TILE) + MAP_LEFT,
-      y: ty * TILE + Math.floor((worldY % 1) * TILE) + MAP_TOP,
-      active,
-    };
-  }));
-};
+// The pixel of a place in the whole world at a zoom level
+const worldPixel = (lon, lat, zoom) => ({
+  x: Math.floor(lon2world(lon) * 2 ** zoom * TILE),
+  y: Math.floor(lat2world(lat) * 2 ** zoom * TILE),
+});
+
+// Position of the track points on the screen: points further than a tile away from the screen are not active
+const placeTrack = (lines, toScreen) => lines.map((points) => points.map(([lon, lat]) => {
+  const { x, y } = toScreen(lon, lat);
+  const active = x >= -TILE && x < SCREEN_WIDTH + TILE && y >= -TILE && y < SCREEN_HEIGHT + TILE;
+  return { x, y, active };
+}));
 
 const distance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 
-// Arrows in the direction of the track, every ARROW_SPACING pixels along its visible parts
+// Arrows in the direction of the track, every ARROW_SPACING pixels along all of it, so they stay on their place on the
+// track when the map is scrolled. Only the ones in the visible parts are returned.
 const placeArrows = (points) => {
   const arrows = [];
   let travelled = ARROW_SPACING / 2;
   points.forEach((point, i) => {
     const next = points[i + 1];
-    if (!point.active || !next?.active) {
+    if (!next) {
       return;
     }
     travelled += distance(point, next);
     if (travelled < ARROW_SPACING) {
+      return;
+    }
+    if (!point.active || !next.active) {
+      travelled = 0;
       return;
     }
     let ahead = i + 1;
@@ -245,25 +259,26 @@ const mapsOfScreen = (maps, screen) => {
 // bytes of a raw tile: 256 x 256 pixels, 4 bit per pixel
 const RAW_TILE_BYTES = TILE * TILE / 2;
 
-// The tiles of the SD card in the 3x3 tiles around the position, as map_render of the firmware draws them: the raw
-// pixels (the high 4 bits are the left pixel), "Not Found" in a tile that is not there. Returns the tiles drawn.
-const drawRasterTiles = (fb, readTile, zoom, centerTileX, centerTileY) => {
+// The tiles of the SD card on the screen, origin is the world pixel of its top left corner. Around the position these
+// are the 3x3 tiles map_render of the firmware draws: the raw pixels (the high 4 bits are the left pixel), "Not Found"
+// in a tile that is not there. Returns the tiles drawn.
+const drawRasterTiles = (fb, readTile, zoom, origin) => {
   let drawn = 0;
-  for (let i = 0; i < 3; i++) {
-    for (let j = 0; j < 3; j++) {
-      const left = MAP_LEFT + i * TILE;
-      const top = MAP_TOP + j * TILE;
-      const data = readTile?.({ zoom, x: centerTileX - 1 + i, y: centerTileY - 1 + j });
+  for (let x = Math.floor(origin.x / TILE); x * TILE - origin.x < SCREEN_WIDTH; x++) {
+    for (let y = Math.floor(origin.y / TILE); y * TILE - origin.y < SCREEN_HEIGHT; y++) {
+      const left = x * TILE - origin.x;
+      const top = y * TILE - origin.y;
+      const data = readTile?.({ zoom, x, y });
       if (!data || data.length < RAW_TILE_BYTES) {
         const notFound = 'Not Found';
         drawText(fb, left + 1 + Math.trunc((TILE - textWidth(notFound)) / 2), top + 1 + (TILE - CHAR_HEIGHT) / 2, notFound, BLACK);
         continue;
       }
       drawn++;
-      for (let y = Math.max(0, -top); y < TILE && top + y < SCREEN_HEIGHT; y++) {
-        for (let x = Math.max(0, -left); x < TILE && left + x < SCREEN_WIDTH; x++) {
-          const byte = data[(y * TILE + x) >> 1];
-          fb.pixels[(top + y) * SCREEN_WIDTH + left + x] = x & 1 ? byte & 0x0f : byte >> 4;
+      for (let row = Math.max(0, -top); row < TILE && top + row < SCREEN_HEIGHT; row++) {
+        for (let column = Math.max(0, -left); column < TILE && left + column < SCREEN_WIDTH; column++) {
+          const byte = data[(row * TILE + column) >> 1];
+          fb.pixels[(top + row) * SCREEN_WIDTH + left + column] = column & 1 ? byte & 0x0f : byte >> 4;
         }
       }
     }
@@ -271,24 +286,50 @@ const drawRasterTiles = (fb, readTile, zoom, centerTileX, centerTileY) => {
   return drawn;
 };
 
+// Where the firmware draws a position: at its pixel in the tile in the middle of the 3x3 tiles
+export const deviceAnchor = (lat, lon, zoom) => {
+  const { x, y } = worldPixel(lon, lat, zoom);
+  return { anchorX: MAP_LEFT + TILE + x % TILE, anchorY: MAP_TOP + TILE + y % TILE };
+};
+
+// The middle of the screen
+export const CENTER_ANCHOR = { anchorX: CENTER_X, anchorY: CENTER_Y };
+
+// { lat, lon } of the place in the middle of the screen when { lat, lon } is drawn at the anchor, a map that was scrolled
+// is kept this way
+export const centerOfScreen = ({ lat, lon, zoom, anchorX, anchorY }) => {
+  const world = TILE * 2 ** zoom;
+  const clamp = (value) => Math.min(Math.max(value, 0), 1);
+  return {
+    lat: world2lat(clamp(lat2world(lat) + (CENTER_Y - anchorY) / world)),
+    lon: world2lon(clamp(lon2world(lon) + (CENTER_X - anchorX) / world)),
+  };
+};
+
 // Draws the map screen. options: { maps (of openMap, the maps on the SD card), readTile ({ zoom, x, y } => the raw
-// tile of the SD card or null), lat, lon, zoomIndex (into NAVI_ZOOMS), track: { name, lines } or null, trackColor
-// (ink), showTrack, showHeightGraph, battery, satellites, hdop, altitude }.
+// tile of the SD card or null), lat, lon (the place of the map at the anchor), anchorX, anchorY (as on the device if not
+// given), position ({ lat, lon, altitude, accuracy (m) } of the marker, at lat, lon if not given, null without a
+// position), zoomIndex (into NAVI_ZOOMS), track: { name, lines } or null, trackColor (ink), showTrack, showHeightGraph,
+// battery (percent), satellites (null if not known) }.
 // Like the firmware it draws the vector maps when one covers the screen, the tiles otherwise.
 // Returns { fb, source, tiles, drawn, error }: source is 'vector' or 'tiles', tiles the number of map tiles that were
 // drawn (of the vector maps or the raw tiles), drawn the vector maps that were drawn, error a failed map read.
 export const renderNaviScreen = ({
-  maps = [], readTile = null, lat, lon, zoomIndex = 0, track = null, trackColor = BLUE, showTrack = true,
-  showHeightGraph = true, battery = 80, satellites = 9, hdop = 1, altitude = 0,
+  maps = [], readTile = null, lat, lon, anchorX, anchorY, position = { lat, lon }, zoomIndex = 0, track = null,
+  trackColor = BLUE, showTrack = true, showHeightGraph = true, battery = null, satellites = null,
 }) => {
   const fb = makeFramebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
   const { zoom, scale, text } = NAVI_ZOOMS[zoomIndex] ?? NAVI_ZOOMS[0];
 
-  // the position is at its pixel in the tile in the middle of the 3x3 tiles
-  const worldX = lon2world(lon) * 2 ** zoom;
-  const worldY = lat2world(lat) * 2 ** zoom;
-  const anchorX = MAP_LEFT + TILE + Math.floor((worldX % 1) * TILE);
-  const anchorY = MAP_TOP + TILE + Math.floor((worldY % 1) * TILE);
+  const device = deviceAnchor(lat, lon, zoom);
+  anchorX ??= device.anchorX;
+  anchorY ??= device.anchorY;
+  const center = worldPixel(lon, lat, zoom);
+  const origin = { x: center.x - anchorX, y: center.y - anchorY };
+  const toScreen = (pointLon, pointLat) => {
+    const { x, y } = worldPixel(pointLon, pointLat, zoom);
+    return { x: x - origin.x, y: y - origin.y };
+  };
 
   let tiles = 0;
   let error = null;
@@ -297,11 +338,12 @@ export const renderNaviScreen = ({
   if (drawn.length > 0) {
     try {
       if (drawn.every((map) => map.native)) {
-        // opened natively (vector_maps.js): mapsforge-rs draws into the framebuffer, the names are placed here
+        // opened natively (vector_maps.js): mapsforge-rs draws into the framebuffer, the icons and names are drawn here
         const view = { lat, lon, zoom, width: SCREEN_WIDTH, height: SCREEN_HEIGHT, anchorX, anchorY };
         const result = drawn[0].native.render(drawn.map((map) => map.native.id), view, fb.pixels);
-        const label = labelPlacer(fb);
-        result.labels.forEach(({ x, y, text, rank }) => label(x, y, text, rank));
+        const target = rasterTarget(fb);
+        result.icons.forEach(({ x, y, icon }) => target.icon(x, y, NATIVE_ICONS[icon]));
+        result.labels.forEach(({ x, y, text, rank }) => target.label(x, y, text, rank));
         tiles = result.tiles;
       } else {
         const view = (map) => makeView({
@@ -313,20 +355,24 @@ export const renderNaviScreen = ({
       error = e;
     }
   } else {
-    tiles = drawRasterTiles(fb, readTile, zoom, Math.floor(worldX), Math.floor(worldY));
+    tiles = drawRasterTiles(fb, readTile, zoom, origin);
   }
 
   const points = track ? track.lines.flat() : [];
   if (track && showTrack) {
-    drawTrack(fb, placeTrack(track.lines, zoom, Math.floor(worldX), Math.floor(worldY)), trackColor);
+    drawTrack(fb, placeTrack(track.lines, toScreen), trackColor);
   }
 
   // position marker in the color of the track, the circle shows the precision
-  circleFill(fb, anchorX, anchorY, 6, trackColor);
-  circleFill(fb, anchorX, anchorY, 2, WHITE);
-  circleDraw(fb, anchorX, anchorY, Math.floor(hdop / 2) + 8, BLACK);
+  if (position) {
+    const { x, y } = toScreen(position.lon, position.lat);
+    const metersPerPixel = EQUATOR * Math.cos(position.lat * Math.PI / 180) / (TILE * 2 ** zoom);
+    circleFill(fb, x, y, 6, trackColor);
+    circleFill(fb, x, y, 2, WHITE);
+    circleDraw(fb, x, y, Math.max(Math.round((position.accuracy ?? 0) / metersPerPixel), 8), BLACK);
+  }
 
-  topBar(fb, { battery, satellites });
+  topBar(fb, { battery, satellites, hasPosition: !!position });
 
   const graph = showHeightGraph && points.length >= 2;
   const shift = graph ? 0 : GRAPH_SHIFT;
@@ -342,14 +388,18 @@ export const renderNaviScreen = ({
   drawText(fb, SCREEN_WIDTH - textWidth(COPYRIGHT) - 1, SCREEN_HEIGHT - 10 - GRAPH_HEIGHT + shift + 1, COPYRIGHT, BLACK);
 
   if (graph) {
-    heightGraph(fb, points, closestPoint(points, lat, lon));
+    heightGraph(fb, points, position ? closestPoint(points, position.lat, position.lon) : -1);
   }
 
   // black strip with the name of the track or the position
-  const info = (track?.name && showTrack
-    ? track.name
-    : `GPS: ${hemisphere(lat, 'N', 'S')} ${hemisphere(lon, 'E', 'W')} ${altitude.toFixed(2)}m (HDOP:${hdop.toFixed(1)})`
-  ).slice(0, INFO_LENGTH);
+  const gpsInfo = () => {
+    if (!position) {
+      return 'GPS: no position';
+    }
+    const accuracy = Number.isFinite(position.accuracy) ? ` (+-${Math.round(position.accuracy)}m)` : '';
+    return `GPS: ${hemisphere(position.lat, 'N', 'S')} ${hemisphere(position.lon, 'E', 'W')} ${(position.altitude ?? 0).toFixed(2)}m${accuracy}`;
+  };
+  const info = (track?.name && showTrack ? track.name : gpsInfo()).slice(0, INFO_LENGTH);
   const infoTop = SCREEN_HEIGHT - INFO_HEIGHT;
   fillRect(fb, 0, infoTop, SCREEN_WIDTH, INFO_HEIGHT, BLACK);
   drawText(fb, 1 + Math.trunc((SCREEN_WIDTH - textWidth(info)) / 2), infoTop + 1 + (INFO_HEIGHT - CHAR_HEIGHT) / 2, info, WHITE);

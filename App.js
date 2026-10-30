@@ -117,6 +117,8 @@ export default function App() {
   latestView.current = view;
   // set when the map is moved, a position of the phone that arrives later does not move it back
   const viewMoved = useRef(false);
+  // the simulated IndiaNavi has the position of the phone in its middle until its map is scrolled
+  const [naviFollowing, setNaviFollowing] = useState(true);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
   // 'main', 'tracks', 'filter', 'maps', 'transfer', 'connection' or 'recordings'. The main screen shows the IndiaNavi
   // as it draws the vector map, or the converter of the tiles for the device (settings.mode).
@@ -182,6 +184,8 @@ export default function App() {
   // the checked maps are open while they are checked. Without a track the position moves onto the maps when it is
   // outside of all of them, so the simulated IndiaNavi shows something.
   const checkedKey = checkedMaps.join('\n');
+  // set when the user checks other maps, the maps that are checked when the app starts do not end the following
+  const mapsChecked = useRef(false);
   const hasTrackRef = useRef(false);
   hasTrackRef.current = track !== null;
   useEffect(() => {
@@ -201,8 +205,12 @@ export default function App() {
       const newView = { ...latestView.current, lat: center.lat, lon: center.lon };
       viewMoved.current = true;
       setView(newView);
+      if (mapsChecked.current) {
+        setNaviFollowing(false);
+      }
       changeSettings({ view: newView });
     }
+    mapsChecked.current = false;
     return () => maps.forEach((map) => map.close());
   }, [checkedKey, changeSettings]);
 
@@ -253,7 +261,18 @@ export default function App() {
     setError(null);
     setPrepared(null);
     setTrack(newTrack);
-    changeSettings({ trackId: newTrack?.id });
+    // a new track is shown from its first point, closing it goes back to the position
+    const first = newTrack?.lines?.[0]?.[0];
+    if (first) {
+      const newView = { ...latestView.current, lon: first[0], lat: first[1] };
+      viewMoved.current = true;
+      setView(newView);
+      setNaviFollowing(false);
+      changeSettings({ trackId: newTrack.id, view: newView });
+    } else {
+      setNaviFollowing(true);
+      changeSettings({ trackId: newTrack?.id });
+    }
   }, [changeSettings]);
 
   // opened GPX files are added to the tracks and selected
@@ -460,10 +479,11 @@ export default function App() {
         readTile={readTile}
         view={view}
         onViewChange={changeView}
+        following={naviFollowing}
+        onFollowingChange={setNaviFollowing}
         zoomIndex={naviZoom}
         onZoomChange={(index) => changeSettings({ naviZoom: index })}
         track={track}
-        fitKey={track?.id}
         trackColor={trackInk}
       />
     </View>
@@ -608,7 +628,10 @@ export default function App() {
         ) : screen === 'maps' ? (
           <MapsScreen
             checked={checkedMaps}
-            onCheckedChange={changeCheckedMaps}
+            onCheckedChange={(maps) => {
+              mapsChecked.current = true;
+              changeCheckedMaps(maps);
+            }}
             onBack={() => setScreen('main')}
           />
         ) : screen === 'connection' ? (

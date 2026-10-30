@@ -6,7 +6,7 @@ import { buildTestMap, testTileBounds } from './mapsforge_test_map.js';
 import {
   BLACK, WHITE, fillPolygon, labelPlacer, makeFramebuffer, polyline, rasterTarget, toAscii,
 } from './navi_raster.js';
-import { NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, renderNaviScreen } from './navi_screen.js';
+import { CENTER_ANCHOR, NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, centerOfScreen, deviceAnchor, renderNaviScreen } from './navi_screen.js';
 import { BLUE, GREEN, P50, RED, tint } from './vector_style.js';
 
 const LAT = 49.143;
@@ -35,6 +35,24 @@ test('map icons are centered on the position, transparent pixels keep the ground
   assert.equal(at(fb, 13, 13), BLACK);
   assert.equal(at(fb, 20, 20), RED);
   assert.equal(rasterTarget(fb).icon(20, 20, 'no_such_icon'), false);
+});
+
+test('the icons of the native renderer are drawn by their MFR_ICON_* number, names on top of them', () => {
+  const NAMES = [
+    'drinking_water', 'spring', 'food', 'supermarket', 'pharmacy', 'hospital', 'train', 'bus', 'tram', 'parking',
+    'castle', 'tower', 'other',
+  ];
+  const opened = openMap(bufferSource(buildTestMap({ lat: LAT, lon: LON, ways: [] })));
+  const icons = NAMES.map((name, i) => ({ x: 20 + 30 * i, y: 100, icon: i + 1 }));
+  const screen = (result) => renderNaviScreen({
+    maps: [{ ...opened, native: { id: 1, render: () => ({ tiles: 1, ...result }) } }], lat: LAT, lon: LON, position: null,
+  });
+  const label = { x: 20, y: 100, text: 'Ort', rank: 1 };
+  const expected = screen({ labels: [], icons: [] }).fb;
+  const target = rasterTarget(expected);
+  icons.forEach(({ x, y }, i) => assert.equal(target.icon(x, y, NAMES[i]), true));
+  target.label(label.x, label.y, label.text, label.rank);
+  assert.deepEqual(screen({ labels: [label], icons }).fb.pixels, expected.pixels);
 });
 
 test('wide lines cover their width', () => {
@@ -154,4 +172,84 @@ test('a track gets its line and the height graph', () => {
 
 test('the two scales of the button', () => {
   assert.deepEqual(NAVI_ZOOMS.map(({ zoom, text }) => [zoom, text]), [[16, '100m'], [14, '500m']]);
+});
+
+// the area of the marker in its color
+const markerAt = (fb, ink = RED) => {
+  const xs = [];
+  const ys = [];
+  fb.pixels.forEach((pixel, i) => {
+    // the icons of the top bar have this color too
+    if (pixel === ink && i >= 26 * fb.width) {
+      xs.push(i % fb.width);
+      ys.push(Math.floor(i / fb.width));
+    }
+  });
+  return xs.length === 0 ? null : { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+};
+
+test('the marker is at the position, also when the map shows another place', () => {
+  const position = { lat: LAT, lon: LON };
+  const { anchorX, anchorY } = deviceAnchor(LAT, LON, NAVI_ZOOMS[0].zoom);
+  const following = renderNaviScreen({ lat: LAT, lon: LON, position, trackColor: RED });
+  assert.deepEqual(markerAt(following.fb), { x: anchorX, y: anchorY });
+
+  // the map is scrolled by 40 pixels to the right and 25 pixels up: the marker goes with it
+  const scrolled = renderNaviScreen({ lat: LAT, lon: LON, anchorX: anchorX + 40, anchorY: anchorY - 25, position, trackColor: RED });
+  assert.deepEqual(markerAt(scrolled.fb), { x: anchorX + 40, y: anchorY - 25 });
+
+  // the same scrolled map, kept as the place in the middle of the screen
+  const center = centerOfScreen({ lat: LAT, lon: LON, zoom: NAVI_ZOOMS[0].zoom, anchorX: anchorX + 40, anchorY: anchorY - 25 });
+  const kept = markerAt(renderNaviScreen({ ...center, ...CENTER_ANCHOR, position, trackColor: RED }).fb);
+  assert.ok(Math.abs(kept.x - (anchorX + 40)) <= 1);
+  assert.ok(Math.abs(kept.y - (anchorY - 25)) <= 1);
+
+  assert.equal(markerAt(renderNaviScreen({ lat: LAT, lon: LON, position: null, trackColor: RED }).fb), null);
+});
+
+test('the app can draw the position in the middle of the screen', () => {
+  const { fb } = renderNaviScreen({ lat: LAT, lon: LON, ...CENTER_ANCHOR, trackColor: RED });
+  assert.deepEqual(markerAt(fb), { x: SCREEN_WIDTH / 2, y: SCREEN_HEIGHT / 2 });
+});
+
+test('the top bar shows the battery and the satellites, without the Bluetooth and SD icons', () => {
+  const inks = (options) => {
+    const { fb } = renderNaviScreen({ lat: LAT, lon: LON, ...options });
+    return fb.pixels.slice(0, 26 * SCREEN_WIDTH);
+  };
+  const differs = (a, b) => a.some((ink, i) => ink !== b[i]);
+  const unknown = inks({});
+  assert.ok(differs(unknown, inks({ battery: 55 })));
+  assert.ok(differs(inks({ battery: 55 }), inks({ battery: 56 })));
+  assert.ok(differs(inks({ satellites: 7 }), inks({ satellites: 8 })));
+  // between the north icon and the satellites the bar is empty
+  const { fb } = renderNaviScreen({ lat: LAT, lon: LON, battery: 100, satellites: 9 });
+  for (let y = 1; y < 25; y++) {
+    for (let x = 130; x < 390; x++) {
+      assert.equal(at(fb, x, y), WHITE, `pixel ${x}, ${y}`);
+    }
+  }
+});
+
+test('a scrolled map draws the tiles on the screen and moves the track with them', () => {
+  const requested = [];
+  const { anchorX, anchorY } = deviceAnchor(LAT, LON, 16);
+  const readTile = (tile) => {
+    requested.push(tile);
+    return null;
+  };
+  const screen = renderNaviScreen({ readTile, lat: LAT, lon: LON, anchorX: anchorX - 300, anchorY: anchorY - 300 });
+  assert.equal(screen.source, 'tiles');
+  // the map moved 300 pixels up and to the left, so the first tile is one further than on the device
+  const tile = 2 ** 16 * (LON + 180) / 360;
+  assert.equal(requested[0].x, Math.floor(tile));
+  assert.ok(requested.length >= 9 && requested.length <= 12);
+
+  const line = Array.from({ length: 40 }, (_, i) => [LON - 0.002 + i * 0.0001, LAT, 200]);
+  const track = { name: 'Felsenland', lines: [line] };
+  const reds = (options) => renderNaviScreen({ lat: LAT, lon: LON, track, position: null, showHeightGraph: false, trackColor: RED, ...options }).fb.pixels.filter((ink, i) => ink === RED && i >= 26 * SCREEN_WIDTH).length;
+  const home = reds({});
+  assert.ok(home > 100);
+  // scrolled so far that the track left the screen
+  assert.equal(reds({ anchorX: anchorX + 2000, anchorY }), 0);
 });

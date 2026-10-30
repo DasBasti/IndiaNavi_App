@@ -91,7 +91,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "The position of the phone helps the GPS module of the IndiaNavi to find the satellites faster.",
+          "locationWhenInUsePermission": "The position of the phone is shown on the map of the simulated IndiaNavi and helps the GPS module of the real one to find the satellites faster.",
           "isAndroidBackgroundLocationEnabled": false,
           "isAndroidForegroundServiceEnabled": false
         }

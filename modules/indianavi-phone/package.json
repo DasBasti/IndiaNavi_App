@@ -1,0 +1,7 @@
+{
+  "name": "indianavi-phone",
+  "version": "1.0.0",
+  "description": "The battery level and the GPS satellites of the phone",
+  "main": "index.js",
+  "private": true
+}

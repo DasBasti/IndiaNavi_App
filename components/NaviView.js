@@ -1,12 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Image, PixelRatio, StyleSheet, Text, View } from 'react-native';
+import { Image, PanResponder, PixelRatio, StyleSheet, Text, View } from 'react-native';
 
 import Button from './Button';
 import { BORDER, colors } from '../theme';
 import { DISPLAY_COLORS } from '../modules/map_color';
-import { NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, renderNaviScreen } from '../modules/navi_screen';
+import {
+  CENTER_ANCHOR, NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, centerOfScreen, renderNaviScreen,
+} from '../modules/navi_screen';
 import { encodePalettePng, pngDataUri } from '../modules/png';
 import { FramebufferView, dropFrame, setFrame } from '../modules/indianavi-mapsforge';
+import { usePhoneStatus } from '../modules/phone_status';
 
 // the screen is shown with the colors of the display, they are darker than the pure colors
 const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
@@ -15,13 +18,18 @@ const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
 const BEZEL = 10;
 
 // The IndiaNavi on the phone: its map screen as the device draws it from the vector maps (the checked maps, which are
-// also the maps for its SD card). The button switches between the 100 m and the 500 m scale like the button of the
-// device.
-// view is { lon, lat } of the position, onViewChange gets the new one. A track (lines) is drawn with its height graph,
-// fitKey moves the position to the start of the track once.
+// also the maps for its SD card), with the position, battery and GPS satellites of the phone. The button switches
+// between the 100 m and the 500 m scale like the button of the device.
+// While following is set the position stays in the middle of the screen. Dragging scrolls the map away: view is
+// { lon, lat } of the middle of the screen then, onViewChange gets the new one and onFollowingChange ends and starts the
+// following.
+// A track (lines) is drawn with its height graph.
 // readTile reads a raw tile ({ zoom, x, y }) the device would show where no vector map covers the screen.
-export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex, onZoomChange, track, fitKey, trackColor }) {
+export default function NaviView({ maps, readTile, view, onViewChange, following, onFollowingChange, zoomIndex, onZoomChange, track, trackColor }) {
   const [size, setSize] = useState(null);
+  // { base, x, y } while the map is dragged: the map at the start of it and the display pixels it moved since then
+  const [drag, setDrag] = useState(null);
+  const { position, battery, satellites } = usePhoneStatus();
   const latest = useRef({});
 
   // the display keeps its proportions in the space it gets
@@ -29,23 +37,68 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
   const height = Math.round(width * SCREEN_HEIGHT / SCREEN_WIDTH);
   // phone pixels per display pixel
   const factor = width / SCREEN_WIDTH;
-  latest.current = { view };
+  const { zoom } = NAVI_ZOOMS[zoomIndex];
+  const { lat, lon } = following && position !== null ? position : view;
+  latest.current = { base: { lat, lon, ...CENTER_ANCHOR }, view, zoom, factor, onViewChange, onFollowingChange };
 
-  // a track that is shown starts at its first point, like a walk does
-  const fitted = useRef(null);
-  useEffect(() => {
-    const first = track?.lines?.[0]?.[0];
-    if (!first || fitted.current === fitKey) {
-      return;
-    }
-    fitted.current = fitKey;
-    onViewChange({ ...latest.current.view, lon: first[0], lat: first[1] });
-  }, [track, fitKey, onViewChange]);
+  // Every move would draw the screen, so the moves are drawn when the last drawing is done
+  const frameRequest = useRef(null);
+  const moved = useRef(null);
+  const cancelFrame = () => {
+    cancelAnimationFrame(frameRequest.current);
+    frameRequest.current = null;
+  };
+  useEffect(() => cancelFrame, []);
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      moved.current = { base: latest.current.base, x: 0, y: 0 };
+      setDrag(moved.current);
+    },
+    onPanResponderMove: (event, { dx, dy }) => {
+      const { factor: f } = latest.current;
+      moved.current = { base: moved.current.base, x: Math.round(dx / f), y: Math.round(dy / f) };
+      if (frameRequest.current === null) {
+        frameRequest.current = requestAnimationFrame(() => {
+          frameRequest.current = null;
+          setDrag(moved.current);
+        });
+      }
+    },
+    onPanResponderRelease: (event, { dx, dy }) => {
+      cancelFrame();
+      const { factor: f, view: current, zoom: z, onViewChange: change, onFollowingChange: follow } = latest.current;
+      const { base } = moved.current;
+      const x = Math.round(dx / f);
+      const y = Math.round(dy / f);
+      setDrag(null);
+      if (x !== 0 || y !== 0) {
+        change({ ...current, ...centerOfScreen({ ...base, zoom: z, anchorX: base.anchorX + x, anchorY: base.anchorY + y }) });
+        follow(false);
+      }
+    },
+    onPanResponderTerminate: () => {
+      cancelFrame();
+      setDrag(null);
+    },
+  })).current;
+
+  // Without the native view a new PNG takes seconds, so the picture itself moves while the map is dragged
+  const shown = drag
+    ? (FramebufferView
+      ? { ...drag.base, anchorX: drag.base.anchorX + drag.x, anchorY: drag.base.anchorY + drag.y }
+      : drag.base)
+    : latest.current.base;
 
   // the screen is drawn again after every change, drawing a map takes some 10 to a few 100 ms
   const screen = useMemo(
-    () => renderNaviScreen({ maps, readTile, lat: view.lat, lon: view.lon, zoomIndex, track, trackColor }),
-    [maps, readTile, view.lat, view.lon, zoomIndex, track, trackColor]
+    () => renderNaviScreen({
+      maps, readTile, lat: shown.lat, lon: shown.lon, anchorX: shown.anchorX, anchorY: shown.anchorY, position, zoomIndex,
+      track, trackColor, battery, satellites,
+    }),
+    [maps, readTile, shown.lat, shown.lon, shown.anchorX, shown.anchorY, position, zoomIndex, track, trackColor, battery, satellites]
   );
 
   // In a build of the app the pixels go to a native view as they are. Without it (web, Expo Go) they are enlarged into
@@ -72,10 +125,16 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
         onLayout={({ nativeEvent: { layout } }) => setSize({ width: layout.width, height: layout.height })}>
         {width > 0 && (
           <View style={[styles.device, { width: width + 2 * BEZEL, height: height + 2 * BEZEL }]}>
-            <View style={[styles.display, { width, height }]}>
+            <View style={[styles.display, { width, height }]} {...panResponder.panHandlers}>
               {FramebufferView
                 ? <FramebufferView frameKey={frameKey} version={version} style={{ width, height }} />
-                : <Image source={{ uri }} style={{ width, height }} fadeDuration={0} />}
+                : (
+                  <Image
+                    source={{ uri }}
+                    style={{ width, height, transform: [{ translateX: (drag?.x ?? 0) * factor }, { translateY: (drag?.y ?? 0) * factor }] }}
+                    fadeDuration={0}
+                  />
+                )}
             </View>
           </View>
         )}
@@ -90,12 +149,17 @@ export default function NaviView({ maps, readTile, view, onViewChange, zoomIndex
             : 'No vector map and no tiles for this place, the IndiaNavi shows "Not Found" here.'}
         </Text>
       )}
-      <Button
-        title={`Scale ${NAVI_ZOOMS[zoomIndex].text} ⇄ ${NAVI_ZOOMS[(zoomIndex + 1) % NAVI_ZOOMS.length].text}`}
-        onPress={() => onZoomChange((zoomIndex + 1) % NAVI_ZOOMS.length)}
-        variant="plain"
-        compact
-      />
+      <View style={styles.buttons}>
+        <Button
+          title={`Scale ${NAVI_ZOOMS[zoomIndex].text} ⇄ ${NAVI_ZOOMS[(zoomIndex + 1) % NAVI_ZOOMS.length].text}`}
+          onPress={() => onZoomChange((zoomIndex + 1) % NAVI_ZOOMS.length)}
+          variant="plain"
+          compact
+        />
+        {!following && (
+          <Button title="My position" onPress={() => onFollowingChange(true)} disabled={position === null} variant="plain" compact />
+        )}
+      </View>
     </View>
   );
 }
@@ -119,6 +183,11 @@ const styles = StyleSheet.create({
   display: {
     overflow: 'hidden',
     backgroundColor: colors.paper,
+  },
+  buttons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
   },
   note: {
     fontSize: 13,
