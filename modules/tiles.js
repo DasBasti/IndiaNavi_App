@@ -1,13 +1,14 @@
-// Zoom levels the IndiaNavi map screen uses (zoom_min/zoom_max in config.xml)
-export const ZOOM_LEVELS = [14, 16];
+import { DEFAULT_ZOOM_LEVELS, zoomList } from './zoom_levels.js';
+
+// Zoom levels the IndiaNavi map screen uses by default, from wide to close. The user chooses them in the app.
+export const ZOOM_LEVELS = zoomList(DEFAULT_ZOOM_LEVELS);
 
 // Number of tiles loaded around the track in every direction
 export const DEFAULT_MARGIN = 10;
 
-// Zoom levels that only get a part of the margin, their tiles cover a larger area
-const MARGIN_FACTORS = { 14: 0.5 };
-
-export const zoomMargin = (margin, zoom) => Math.ceil(margin * (MARGIN_FACTORS[zoom] ?? 1));
+// The wider zoom level only gets a part of the margin, its tiles cover a larger area
+export const zoomMargin = (margin, zoom, zooms = ZOOM_LEVELS) =>
+    Math.ceil(margin * (zoom < Math.max(...zooms) ? 0.5 : 1));
 
 // A converted tile is 256x256 pixels with 4 bit per pixel
 export const RAW_TILE_BYTES = 256 * 256 / 2;
@@ -90,9 +91,9 @@ export const calculateBoundaries = (lines) => {
 }
 
 // Returns the inclusive tile range [from, to] for x and y on the given zoom level
-export const tileRanges = (bounds, margin, zoom) => {
+export const tileRanges = (bounds, margin, zoom, zooms = ZOOM_LEVELS) => {
 
-    margin = zoomMargin(margin, zoom);
+    margin = zoomMargin(margin, zoom, zooms);
     const last = 2 ** zoom - 1;
     const clamp = (tile) => Math.min(Math.max(tile, 0), last);
 
@@ -105,14 +106,14 @@ export const tileRanges = (bounds, margin, zoom) => {
 }
 
 // Returns the area the tiles of a zoom level cover in world positions
-export const tileArea = (bounds, margin, zoom) => {
-    const { x, y } = tileRanges(bounds, margin, zoom);
+export const tileArea = (bounds, margin, zoom, zooms = ZOOM_LEVELS) => {
+    const { x, y } = tileRanges(bounds, margin, zoom, zooms);
     const size = 2 ** zoom;
     return { west: x[0] / size, east: (x[1] + 1) / size, north: y[0] / size, south: (y[1] + 1) / size };
 }
 
-export const countTiles = (bounds, margin, zoom) => {
-    const { x, y } = tileRanges(bounds, margin, zoom);
+export const countTiles = (bounds, margin, zoom, zooms = ZOOM_LEVELS) => {
+    const { x, y } = tileRanges(bounds, margin, zoom, zooms);
     return (x[1] - x[0] + 1) * (y[1] - y[0] + 1);
 }
 
@@ -121,7 +122,7 @@ export const listTiles = (bounds, margin, zooms = ZOOM_LEVELS) => {
 
     const tiles = [];
     for (const zoom of zooms) {
-        const range = tileRanges(bounds, margin, zoom);
+        const range = tileRanges(bounds, margin, zoom, zooms);
         for (let x = range.x[0]; x <= range.x[1]; x++) {
             for (let y = range.y[0]; y <= range.y[1]; y++) {
                 tiles.push({ zoom, x, y });

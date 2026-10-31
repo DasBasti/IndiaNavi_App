@@ -5,11 +5,12 @@ import Button from './Button';
 import { BORDER, colors } from '../theme';
 import { DISPLAY_COLORS } from '../modules/map_color';
 import {
-  CENTER_ANCHOR, NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, centerOfScreen, renderNaviScreen,
+  CENTER_ANCHOR, SCREEN_HEIGHT, SCREEN_WIDTH, centerOfScreen, naviZooms, renderNaviScreen,
 } from '../modules/navi_screen';
 import { encodePalettePng, pngDataUri } from '../modules/png';
 import { FramebufferView, dropFrame, setFrame } from '../modules/indianavi-mapsforge';
 import { usePhoneStatus } from '../modules/phone_status';
+import { scaleBar } from '../modules/zoom_levels';
 
 // the screen is shown with the colors of the display, they are darker than the pure colors
 const PALETTE = DISPLAY_COLORS.map((color) => color.panel);
@@ -19,13 +20,13 @@ const BEZEL = 10;
 
 // The IndiaNavi on the phone: its map screen as the device draws it from the vector maps (the checked maps, which are
 // also the maps for its SD card), with the position, battery and GPS satellites of the phone. The button switches
-// between the 100 m and the 500 m scale like the button of the device.
+// between the two zoom levels (chosen in the app) like the button of the device.
 // While following is set the position stays in the middle of the screen. Dragging scrolls the map away: view is
 // { lon, lat } of the middle of the screen then, onViewChange gets the new one and onFollowingChange ends and starts the
 // following.
 // A track (lines) is drawn with its height graph.
 // readTile reads a raw tile ({ zoom, x, y }) the device would show where no vector map covers the screen.
-export default function NaviView({ maps, readTile, view, onViewChange, following, onFollowingChange, zoomIndex, onZoomChange, track, trackColor }) {
+export default function NaviView({ maps, readTile, view, onViewChange, following, onFollowingChange, zoomLevels, zoomIndex, onZoomChange, track, trackColor }) {
   const [size, setSize] = useState(null);
   // { base, x, y } while the map is dragged: the map at the start of it and the display pixels it moved since then
   const [drag, setDrag] = useState(null);
@@ -37,7 +38,8 @@ export default function NaviView({ maps, readTile, view, onViewChange, following
   const height = Math.round(width * SCREEN_HEIGHT / SCREEN_WIDTH);
   // phone pixels per display pixel
   const factor = width / SCREEN_WIDTH;
-  const { zoom } = NAVI_ZOOMS[zoomIndex];
+  const levels = naviZooms(zoomLevels);
+  const zoom = levels[zoomIndex] ?? levels[0];
   const { lat, lon } = following && position !== null ? position : view;
   latest.current = { base: { lat, lon, ...CENTER_ANCHOR }, view, zoom, factor, onViewChange, onFollowingChange };
 
@@ -95,10 +97,10 @@ export default function NaviView({ maps, readTile, view, onViewChange, following
   // the screen is drawn again after every change, drawing a map takes some 10 to a few 100 ms
   const screen = useMemo(
     () => renderNaviScreen({
-      maps, readTile, lat: shown.lat, lon: shown.lon, anchorX: shown.anchorX, anchorY: shown.anchorY, position, zoomIndex,
+      maps, readTile, lat: shown.lat, lon: shown.lon, anchorX: shown.anchorX, anchorY: shown.anchorY, position, zoomLevels, zoomIndex,
       track, trackColor, battery, satellites,
     }),
-    [maps, readTile, shown.lat, shown.lon, shown.anchorX, shown.anchorY, position, zoomIndex, track, trackColor, battery, satellites]
+    [maps, readTile, shown.lat, shown.lon, shown.anchorX, shown.anchorY, position, zoomLevels, zoomIndex, track, trackColor, battery, satellites]
   );
 
   // In a build of the app the pixels go to a native view as they are. Without it (web, Expo Go) they are enlarged into
@@ -151,8 +153,8 @@ export default function NaviView({ maps, readTile, view, onViewChange, following
       )}
       <View style={styles.buttons}>
         <Button
-          title={`Scale ${NAVI_ZOOMS[zoomIndex].text} ⇄ ${NAVI_ZOOMS[(zoomIndex + 1) % NAVI_ZOOMS.length].text}`}
-          onPress={() => onZoomChange((zoomIndex + 1) % NAVI_ZOOMS.length)}
+          title={`Scale ${scaleBar(zoom, lat)?.text} ⇄ ${scaleBar(levels[(zoomIndex + 1) % levels.length], lat)?.text}`}
+          onPress={() => onZoomChange((zoomIndex + 1) % levels.length)}
           variant="plain"
           compact
         />

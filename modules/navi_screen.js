@@ -9,6 +9,7 @@ import {
   BLACK, CHAR_HEIGHT, WHITE, circleDraw, circleFill, drawIcon, drawText, fillRect, line, makeFramebuffer,
   rasterTarget, setPixel, textWidth,
 } from './navi_raster.js';
+import { SCALE_MAX_WIDTH, scaleBar, zoomLevelsOf } from './zoom_levels.js';
 import { lat2world, lon2world, world2lat, world2lon } from './tiles.js';
 
 const GREEN = 2;
@@ -32,11 +33,11 @@ const CENTER_Y = SCREEN_HEIGHT / 2;
 // length of the equator in meters
 const EQUATOR = 40075016.686;
 
-// The two scales the button switches between: zoom level, width of the scale and its text
-export const NAVI_ZOOMS = [
-  { zoom: 16, scale: 63, text: '100m' },
-  { zoom: 14, scale: 77, text: '500m' },
-];
+// The two zoom levels the button switches between, the closer one first. The scale bar fits the level and the latitude.
+export const naviZooms = (levels) => {
+  const { near, far } = zoomLevelsOf(levels);
+  return [near, far];
+};
 
 const MARGIN = 5;
 const MARGIN_WIDE = 10;
@@ -46,11 +47,15 @@ const GRAPH_HEIGHT = 45;
 // the scale and the copyright notice move down without the height graph
 const GRAPH_SHIFT = 29;
 const INFO_HEIGHT = 16;
-const INFO_LENGTH = SCREEN_WIDTH / 8 - 1;
 
 const ARROW_SPACING = 80;
 const ARROW_LOOKAHEAD = 12;
 const ARROW_MARGIN = 5;
+
+// the scale is at the left of the bottom bar, the text of the bar gets the rest
+const SCALE_LEFT = 5;
+const SCALE_AREA = SCALE_LEFT + SCALE_MAX_WIDTH + 5;
+const INFO_LENGTH = Math.floor((SCREEN_WIDTH - SCALE_AREA) / 8) - 1;
 
 const COPYRIGHT = '(c) OpenStreetMap contributors';
 
@@ -309,17 +314,20 @@ export const centerOfScreen = ({ lat, lon, zoom, anchorX, anchorY }) => {
 // Draws the map screen. options: { maps (of openMap, the maps on the SD card), readTile ({ zoom, x, y } => the raw
 // tile of the SD card or null), lat, lon (the place of the map at the anchor), anchorX, anchorY (as on the device if not
 // given), position ({ lat, lon, altitude, accuracy (m) } of the marker, at lat, lon if not given, null without a
-// position), zoomIndex (into NAVI_ZOOMS), track: { name, lines } or null, trackColor (ink), showTrack, showHeightGraph,
+// position), zoomLevels ({ near, far }, the default levels if not given), zoomIndex (0 near, 1 far), track: { name, lines } or null, trackColor (ink), showTrack, showHeightGraph,
 // battery (percent), satellites (null if not known) }.
 // Like the firmware it draws the vector maps when one covers the screen, the tiles otherwise.
 // Returns { fb, source, tiles, drawn, error }: source is 'vector' or 'tiles', tiles the number of map tiles that were
 // drawn (of the vector maps or the raw tiles), drawn the vector maps that were drawn, error a failed map read.
 export const renderNaviScreen = ({
-  maps = [], readTile = null, lat, lon, anchorX, anchorY, position = { lat, lon }, zoomIndex = 0, track = null,
+  maps = [], readTile = null, lat, lon, anchorX, anchorY, position = { lat, lon }, zoomLevels, zoomIndex = 0, track = null,
   trackColor = BLUE, showTrack = true, showHeightGraph = true, battery = null, satellites = null,
 }) => {
   const fb = makeFramebuffer(SCREEN_WIDTH, SCREEN_HEIGHT, WHITE);
-  const { zoom, scale, text } = NAVI_ZOOMS[zoomIndex] ?? NAVI_ZOOMS[0];
+  const levels = naviZooms(zoomLevels);
+  const zoom = levels[zoomIndex] ?? levels[0];
+  // the scale of the device fits the zoom level at the latitude of the position, as long as it is shown
+  const { width: scale, text } = scaleBar(zoom, position?.lat ?? lat) ?? { width: 0, text: '' };
 
   const device = deviceAnchor(lat, lon, zoom);
   anchorX ??= device.anchorX;
@@ -377,14 +385,6 @@ export const renderNaviScreen = ({
   const graph = showHeightGraph && points.length >= 2;
   const shift = graph ? 0 : GRAPH_SHIFT;
 
-  // scale: a bracket open at the top with the distance in it
-  const scaleTop = SCREEN_HEIGHT - 15 - GRAPH_HEIGHT + shift;
-  const scaleBottom = scaleTop + 12;
-  drawText(fb, 10 + 1 + Math.trunc((scale - textWidth(text)) / 2), scaleTop + 13 - CHAR_HEIGHT - 1, text, BLACK);
-  line(fb, 10, scaleTop, 10, scaleBottom, BLACK);
-  line(fb, 10 + scale - 1, scaleTop, 10 + scale - 1, scaleBottom, BLACK);
-  line(fb, 10, scaleBottom, 10 + scale - 1, scaleBottom, BLACK);
-
   drawText(fb, SCREEN_WIDTH - textWidth(COPYRIGHT) - 1, SCREEN_HEIGHT - 10 - GRAPH_HEIGHT + shift + 1, COPYRIGHT, BLACK);
 
   if (graph) {
@@ -402,7 +402,17 @@ export const renderNaviScreen = ({
   const info = (track?.name && showTrack ? track.name : gpsInfo()).slice(0, INFO_LENGTH);
   const infoTop = SCREEN_HEIGHT - INFO_HEIGHT;
   fillRect(fb, 0, infoTop, SCREEN_WIDTH, INFO_HEIGHT, BLACK);
-  drawText(fb, 1 + Math.trunc((SCREEN_WIDTH - textWidth(info)) / 2), infoTop + 1 + (INFO_HEIGHT - CHAR_HEIGHT) / 2, info, WHITE);
+  drawText(fb, SCALE_AREA + 1 + Math.trunc((SCREEN_WIDTH - SCALE_AREA - textWidth(info)) / 2), infoTop + 1 + (INFO_HEIGHT - CHAR_HEIGHT) / 2, info, WHITE);
+
+  // scale at the left of the bar: a white bracket open at the top with the distance in it, only with a position
+  if (position && scale > 0) {
+    const scaleTop = SCREEN_HEIGHT - 14;
+    const scaleBottom = SCREEN_HEIGHT - 1;
+    drawText(fb, SCALE_LEFT + 1 + Math.trunc((scale - textWidth(text)) / 2), scaleBottom - CHAR_HEIGHT - 1, text, WHITE);
+    line(fb, SCALE_LEFT, scaleTop, SCALE_LEFT, scaleBottom, WHITE);
+    line(fb, SCALE_LEFT + scale - 1, scaleTop, SCALE_LEFT + scale - 1, scaleBottom, WHITE);
+    line(fb, SCALE_LEFT, scaleBottom, SCALE_LEFT + scale - 1, scaleBottom, WHITE);
+  }
 
   return { fb, source: drawn.length > 0 ? 'vector' : 'tiles', tiles, drawn, error };
 };

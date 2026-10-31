@@ -70,6 +70,7 @@ All numbers are little endian.
 | 0b | Device control | write | `0x01` = forget the phone |
 | 0c | Recording | read, write, notify | start, stop and delete recordings, state of the running one |
 | 0d | Recordings | read, write | list of the recorded tracks, in pages |
+| 0e | Zoom | read, write | the two zoom levels of the map screen (2 bytes) |
 
 A write with a wrong length is answered with the ATT error *Invalid Attribute Value Length* (0x0d), a value that
 is not allowed (outside of a range, reserved bits set, unknown command) with *Value Not Allowed* (0x13).
@@ -79,7 +80,7 @@ is not allowed (outside of a range, reserved bits set, unknown command) with *Va
 | Byte | Content |
 |---|---|
 | 0 | API version, 1 |
-| 1 | flags: bit 0 = firmware update supported, bit 1 = charger connected, bit 2 = track color in the settings, bit 3 = tracks can be recorded |
+| 1 | flags: bit 0 = firmware update supported, bit 1 = charger connected, bit 2 = track color in the settings, bit 3 = tracks can be recorded, bit 4 = the zoom levels can be chosen (Zoom) |
 | 2 | battery in percent |
 | 3 | 0 |
 | 4… | firmware version (text, not terminated) |
@@ -155,6 +156,23 @@ The track color is a color of the display: 0 black, 1 white, 2 green, 3 blue, 4 
 value is that number + 1, so a 0 written by an app that does not know the color keeps the default, blue. Values
 above 7 are refused. The phone only writes a color if the Info flag bit 2 is set, an older firmware refuses
 anything but 0 in this byte. Reading returns the color + 1.
+
+### Zoom (0e)
+
+| Byte | Content |
+|---|---|
+| 0 | the closer zoom level, shown first, **11 to 17** |
+| 1 | the wider zoom level, shown after the button, **10 to 16** and lower than byte 0 |
+
+The button of the IndiaNavi switches between the two levels. The default is 16 (about 100 m) and 14 (about 500 m).
+Both levels are stored in NVS and survive a restart; the screen is drawn again when they change. A pair outside of
+the range, with equal levels or with the wider one above the closer one is refused with *Value Not Allowed*. The
+phone only uses the characteristic if the Info flag bit 4 is set.
+
+The vector maps are drawn at any level. Tile images on the SD card (`MAPS/{zoom}/{x}/{y}.raw`) are needed for both
+levels where no vector map covers the screen, the app loads the missing ones and sends them with the file transfer.
+The scale bar shows the longest 1, 2 or 5 times a power of ten in meters that is at most 90 pixels wide at the
+latitude of the position (`blep_scale_bar()` in the firmware).
 
 ### Device control (0b)
 

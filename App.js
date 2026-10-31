@@ -28,12 +28,13 @@ import { loadSettings, saveSettings } from './modules/settings';
 import { BORDER, PAGE_PADDING, SHADOW, colors, displayColor, font, shadow } from './theme';
 import { loadTiles, reconvertTiles } from './modules/tile_loader';
 import { DEFAULT_TILE_URL, tileServerName } from './modules/tile_source';
-import { DEFAULT_MARGIN, RAW_TILE_BYTES, ZOOM_LEVELS, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
+import { DEFAULT_MARGIN, RAW_TILE_BYTES, calculateBoundaries, countTiles, lat2tile, listTiles, lon2tile, pointBounds, trackLength, trackLines, zoomMargin } from './modules/tiles';
 import { addTrack, listTracks, readTrack, touchTrack } from './modules/track_library';
 import { trackDeleted as recordingTrackDeleted } from './modules/recording_library';
 import { mapCenter, mapCovers } from './modules/mapsforge';
 import { displayName } from './modules/map_listing';
-import { NAVI_ZOOMS } from './modules/navi_screen';
+import ZoomLevelsSetting from './components/ZoomLevelsSetting';
+import { isZoomLevels, zoomLevelsOf, zoomList } from './modules/zoom_levels';
 import { listMaps, openMapFile } from './modules/vector_maps';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -108,7 +109,12 @@ export default function App() {
     : TRACK_COLOR_DEFAULT;
   const trackColor = displayColor(trackInk);
   const mode = settings.mode === 'converter' ? 'converter' : 'navi';
-  const naviZoom = Number.isInteger(settings.naviZoom) && NAVI_ZOOMS[settings.naviZoom] ? settings.naviZoom : 0;
+  // the two zoom levels of the IndiaNavi, { near, far }. The tiles for the SD card are loaded for both.
+  const zoomLevels = useMemo(() => zoomLevelsOf(settings.zoomLevels), [settings.zoomLevels]);
+  // from wide to close
+  const zooms = useMemo(() => zoomList(zoomLevels), [zoomLevels]);
+  // 0 shows the closer zoom level, 1 the wider one
+  const naviZoom = settings.naviZoom === 1 ? 1 : 0;
   // { id, name, text, lines, bounds } of the selected track
   const [track, setTrack] = useState(() => selectedTrack(settings.trackId));
   // { lon, lat, zoom } of the map, the last position is remembered
@@ -120,6 +126,8 @@ export default function App() {
   // the simulated IndiaNavi has the position of the phone in its middle until its map is scrolled
   const [naviFollowing, setNaviFollowing] = useState(true);
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
+  // the choice of the zoom levels is open
+  const [zoomOpen, setZoomOpen] = useState(false);
   // 'main', 'tracks', 'filter', 'maps', 'transfer', 'connection' or 'recordings'. The main screen shows the IndiaNavi
   // as it draws the vector map, or the converter of the tiles for the device (settings.mode).
   const [screen, setScreen] = useState('main');
@@ -144,7 +152,7 @@ export default function App() {
     [track, view.lon, view.lat]
   );
 
-  const tiles = useMemo(() => listTiles(bounds, margin), [bounds, margin]);
+  const tiles = useMemo(() => listTiles(bounds, margin, zooms), [bounds, margin, zooms]);
 
   // The remembered IndiaNavi is connected in the background as soon as it is visible, so it gets the time and the
   // position of the phone and finds the satellites faster. Only while the app is open.
@@ -329,6 +337,12 @@ export default function App() {
 
   const searchResult = ({ lon, lat }) => changeView({ lon, lat, zoom: 14 });
 
+  // Other zoom levels need other tiles: they are loaded and sent to the SD card as far as they are not there yet
+  const changeZoomLevels = useCallback((levels) => {
+    changeSettings({ zoomLevels: levels });
+    setPrepared(null);
+  }, [changeSettings]);
+
   const changeMargin = (change) => {
     setMargin(Math.max(0, margin + change));
     setPrepared(null);
@@ -390,7 +404,7 @@ export default function App() {
 
   // the filter screen starts with the tile in the middle of the track
   const previewTile = () => {
-    const zoom = Math.max(...ZOOM_LEVELS);
+    const zoom = zoomLevels.near;
     const lon = (bounds.minLon + bounds.maxLon) / 2;
     const lat = (bounds.minLat + bounds.maxLat) / 2;
     return { zoom, x: lon2tile(lon, zoom), y: lat2tile(lat, zoom) };
@@ -481,6 +495,7 @@ export default function App() {
         onViewChange={changeView}
         following={naviFollowing}
         onFollowingChange={setNaviFollowing}
+        zoomLevels={zoomLevels}
         zoomIndex={naviZoom}
         onZoomChange={(index) => changeSettings({ naviZoom: index })}
         track={track}
@@ -512,7 +527,14 @@ export default function App() {
       </Text>
       <Button title="Maps" onPress={() => setScreen('maps')} variant="plain" compact />
       <Button title="Colors" onPress={() => setScreen('filter')} variant="plain" compact />
+      <Button title={`Zoom ${zoomLevels.near}/${zoomLevels.far}`} onPress={() => setZoomOpen(!zoomOpen)} variant="plain" compact />
     </View>
+  );
+
+  const zoomSetting = zoomOpen && (
+    <Card>
+      <ZoomLevelsSetting levels={zoomLevels} onChange={changeZoomLevels} disabled={loading} />
+    </Card>
   );
 
   const mainMap = mode === 'navi' ? naviMap : (
@@ -524,6 +546,7 @@ export default function App() {
         bounds={track?.bounds}
         fitKey={track?.id}
         margin={margin}
+        zooms={zooms}
         tileUrlTemplate={tileUrlTemplate}
         trackColor={trackColor}
       />
@@ -531,18 +554,21 @@ export default function App() {
     </View>
   );
 
-  const mainBottom = mode === 'navi' ? naviBottom : (
+  const mainBottom = mode === 'navi' ? <>{naviBottom}{zoomSetting}</> : (
     <>
       {!track && (
         <Hint>Move the map to put the cross where you need tiles, or open a GPX track.</Hint>
       )}
 
+      <Button title={`Zoom levels ${zoomLevels.far} and ${zoomLevels.near}`} onPress={() => setZoomOpen(!zoomOpen)} variant="plain" compact />
+      {zoomSetting}
+
       <View style={styles.legends}>
-        {ZOOM_LEVELS.map((zoom, index) => (
+        {zooms.map((zoom, index) => (
           <View key={zoom} style={styles.legend}>
             <View style={[styles.legendFrame, { borderColor: areaColor(index) }]} />
             <Text style={styles.small}>
-              Zoom {zoom}: {countTiles(bounds, margin, zoom)} tiles, margin {zoomMargin(margin, zoom)}
+              Zoom {zoom}: {countTiles(bounds, margin, zoom, zooms)} tiles, margin {zoomMargin(margin, zoom, zooms)}
             </Text>
           </View>
         ))}
@@ -621,6 +647,7 @@ export default function App() {
             filter={filter}
             tileUrlTemplate={tileUrlTemplate}
             startTile={previewTile()}
+            zooms={zooms}
             onApply={changeFilter}
             onTileUrlChange={changeTileUrl}
             onBack={() => setScreen('main')}
@@ -639,6 +666,8 @@ export default function App() {
             device={settings.bleDevice}
             onDeviceChange={(bleDevice) => changeSettings({ bleDevice })}
             onTrackColorChange={(newTrackColor) => changeSettings({ trackColor: newTrackColor })}
+            zoomLevels={isZoomLevels(settings.zoomLevels) ? settings.zoomLevels : undefined}
+            onZoomLevelsChange={changeZoomLevels}
             onOpenWifi={() => {
               setAutoTransfer(false);
               setTransferBack('connection');

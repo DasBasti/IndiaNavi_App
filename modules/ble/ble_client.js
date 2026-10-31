@@ -17,6 +17,7 @@ import {
   decodeRecordingStatus,
   decodeRecordings,
   decodeSettings,
+  decodeZoom,
   decodeWifiStatus,
   encodeForgetPhone,
   encodePositionIn,
@@ -24,6 +25,7 @@ import {
   encodeRecordingDelete,
   encodeRecordingsSelect,
   encodeSettings,
+  encodeZoom,
   encodeTime,
   encodeWifiControl,
   fromBase64,
@@ -295,6 +297,15 @@ export class IndiaNaviConnection {
     // an older firmware refuses a track color
     const { trackColor, ...rest } = settings;
     return this.write(CHARACTERISTICS.settings, encodeSettings(this.info.trackColor ? settings : rest));
+  }
+
+  // Zoom levels { near, far } of the map screen, only a firmware with info.zoom has them
+  async readZoom() {
+    return decodeZoom(await this.read(CHARACTERISTICS.zoom));
+  }
+
+  writeZoom(levels) {
+    return this.write(CHARACTERISTICS.zoom, encodeZoom(levels));
   }
 
   // The device forgets this phone and lets the next phone pair. The connection ends.

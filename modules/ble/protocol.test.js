@@ -19,6 +19,7 @@ import {
   decodeSettings,
   decodeTime,
   decodeWifiStatus,
+  decodeZoom,
   describeOtaError,
   encodeForgetPhone,
   encodeOtaCommand,
@@ -30,6 +31,7 @@ import {
   encodeSettings,
   encodeTime,
   encodeWifiControl,
+  encodeZoom,
   formatInterval,
   fromBase64,
   otaChunkSize,
@@ -63,9 +65,11 @@ test('base64 round trip with all byte values', () => {
 
 test('info has version, flags, battery and firmware', () => {
   const info = decodeInfo(Uint8Array.from([1, 3, 80, 0, ...new TextEncoder().encode('abc1234')]));
-  assert.deepEqual(info, { api: 1, ota: true, charging: true, trackColor: false, recording: false, battery: 80, firmware: 'abc1234' });
+  assert.deepEqual(info, { api: 1, ota: true, charging: true, trackColor: false, recording: false, zoom: false, battery: 80, firmware: 'abc1234' });
   assert.equal(decodeInfo(bytes(1, 4, 5, 0)).trackColor, true);
   assert.equal(decodeInfo(bytes(1, 8, 5, 0)).recording, true);
+  assert.equal(decodeInfo(bytes(1, 0x10, 5, 0)).zoom, true);
+  assert.equal(decodeInfo(bytes(1, 0x0f, 5, 0)).zoom, false);
   assert.equal(decodeInfo(bytes(1, 0, 5, 0)).ota, false);
   assert.throws(() => decodeInfo(bytes(1, 0)), /too short/);
 });
@@ -230,4 +234,18 @@ test('chunks fit into the MTU', () => {
   assert.equal(otaChunkSize(247), 244);
   assert.equal(otaChunkSize(185), 182);
   assert.equal(otaChunkSize(517), 244);
+});
+
+test('the zoom levels are two bytes, the closer one first', () => {
+  assert.equal(CHARACTERISTICS.zoom, '494e4449-000e-4e41-5649-000000000000');
+  assert.deepEqual([...encodeZoom({ near: 17, far: 12 })], [17, 12]);
+  assert.deepEqual(decodeZoom(bytes(16, 14)), { near: 16, far: 14 });
+  assert.throws(() => decodeZoom(bytes(16)), /Zoom levels/);
+});
+
+test('zoom levels the device would refuse are not sent', () => {
+  assert.throws(() => encodeZoom({ near: 14, far: 14 }), /zoom levels/);
+  assert.throws(() => encodeZoom({ near: 14, far: 16 }), /zoom levels/);
+  assert.throws(() => encodeZoom({ near: 18, far: 14 }), /zoom levels/);
+  assert.throws(() => encodeZoom({ near: 16, far: 9 }), /zoom levels/);
 });

@@ -120,7 +120,7 @@ const FilterEntry = ({ entry, highlighted, editing, onEdit, onChange, onDelete }
 
 // mode 'tiles': shows a tile of the map next to its converted version and lets the user change the filter and the tile
 // server. mode 'vector': shows how the IndiaNavi draws the areas, ways and POIs of the vector map.
-export default function FilterScreen({ mode = 'tiles', filter, tileUrlTemplate, startTile, onApply, onTileUrlChange, onBack }) {
+export default function FilterScreen({ mode = 'tiles', filter, tileUrlTemplate, startTile, zooms = ZOOM_LEVELS, onApply, onTileUrlChange, onBack }) {
   const { width: windowWidth } = useWindowDimensions();
   const imageSize = Math.floor((windowWidth - 2 * PADDING - GAP) / 2);
 
@@ -339,7 +339,7 @@ export default function FilterScreen({ mode = 'tiles', filter, tileUrlTemplate, 
         <TileServerSetting url={tileUrlTemplate} onChange={onTileUrlChange} />
 
         <View style={styles.row}>
-          {ZOOM_LEVELS.map((zoom) => (
+          {zooms.map((zoom) => (
             <Button
               key={zoom}
               title={`Zoom ${zoom}`}
