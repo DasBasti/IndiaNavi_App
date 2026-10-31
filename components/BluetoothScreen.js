@@ -5,6 +5,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 
 import BluetoothIcon from './BluetoothIcon';
 import Button from './Button';
+import ZoomLevelsSetting from './ZoomLevelsSetting';
 import { BusyWindow, Card, Hint, Message, ProgressWindow, ScreenHeader, SectionTitle } from './ui';
 import { BORDER, colors, displayColor, font, onColor } from '../theme';
 import { readFirmware } from '../modules/device_transfer';
@@ -13,6 +14,7 @@ import { DISPLAY_COLORS } from '../modules/map_color';
 import { isBleSupported, scanForDevices } from '../modules/ble/ble_client';
 import { autoConnect } from '../modules/ble/background';
 import { getPhonePosition } from '../modules/ble/phone_position';
+import { DEFAULT_ZOOM_LEVELS } from '../modules/zoom_levels';
 import { FIX_NAMES, UPDATE_INTERVAL_CHOICES, formatInterval } from '../modules/ble/protocol';
 
 const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -52,8 +54,10 @@ const sentText = ({ time, position }) =>
 // Talks to the IndiaNavi over Bluetooth: time and position for the GPS module, WiFi access point, what the display
 // shows, the track recording and the firmware. The connection is the one that the app keeps in the background (auto_connect.js), it stays
 // when the screen closes. device is the remembered { id, name } of the IndiaNavi. onTrackColorChange gets the color
-// of the track on the device, so the map of the app can show it the same way.
-export default function BluetoothScreen({ device, onDeviceChange, onTrackColorChange, onOpenWifi, onOpenRecordings, onBack }) {
+// of the track on the device, so the map of the app can show it the same way. zoomLevels are the levels { near, far }
+// the user chose in the app, they are sent to the device when it is connected (undefined if none was chosen, the
+// device keeps its levels then). onZoomLevelsChange gets the levels the user chooses here, or the ones of the device.
+export default function BluetoothScreen({ device, onDeviceChange, onTrackColorChange, zoomLevels, onZoomLevelsChange, onOpenWifi, onOpenRecordings, onBack }) {
   const [connection, setConnection] = useState(null);
   const [connecting, setConnecting] = useState(false);
   // devices found by the scan
@@ -64,6 +68,10 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
 
   const [wifi, setWifi] = useState(null);
   const [settings, setSettings] = useState(null);
+  // { near, far } zoom levels of the device, null for a firmware that has no choice
+  const [zoom, setZoom] = useState(null);
+  const zoomWanted = useRef(zoomLevels);
+  zoomWanted.current = zoomLevels;
   const [devicePosition, setDevicePosition] = useState(undefined);
   // { phase, done, total } while the firmware is sent
   const [update, setUpdate] = useState(null);
@@ -99,6 +107,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     setConnection(null);
     setWifi(null);
     setSettings(null);
+    setZoom(null);
     setDevicePosition(undefined);
     setUpdate(null);
   }, []);
@@ -133,6 +142,18 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
       if (connected.info.trackColor) {
         onTrackColorChange(deviceSettings.trackColor);
       }
+      if (connected.info.zoom) {
+        // the levels chosen in the app are the ones the tiles are loaded for, the device gets them
+        let deviceZoom = await connected.readZoom();
+        const wanted = zoomWanted.current;
+        if (wanted && (wanted.near !== deviceZoom.near || wanted.far !== deviceZoom.far)) {
+          await connected.writeZoom(wanted);
+          deviceZoom = wanted;
+        } else if (!wanted && (deviceZoom.near !== DEFAULT_ZOOM_LEVELS.near || deviceZoom.far !== DEFAULT_ZOOM_LEVELS.far)) {
+          onZoomLevelsChange(deviceZoom);
+        }
+        setZoom(deviceZoom);
+      }
       if (connectionRef.current !== connected) {
         return;
       }
@@ -154,7 +175,7 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
       }
     });
     return promise;
-  }, [onTrackColorChange]);
+  }, [onTrackColorChange, onZoomLevelsChange]);
 
   const connect = useCallback(async (target) => {
     setError(null);
@@ -276,6 +297,13 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
     }
     return notice;
   }, 'Could not change the settings', 'Changing the settings…');
+
+  const changeZoom = (levels) => run(async () => {
+    await connection.writeZoom(levels);
+    setZoom(levels);
+    onZoomLevelsChange(levels);
+    return 'Zoom levels changed. Load the tiles for them in the converter and send them to the SD card.';
+  }, 'Could not change the zoom levels', 'Changing the zoom levels…');
 
   const forget = () => {
     Alert.alert(
@@ -530,6 +558,12 @@ export default function BluetoothScreen({ device, onDeviceChange, onTrackColorCh
                   The e-ink display needs about 20 seconds per update. A longer interval saves battery. 30 seconds to 10
                   minutes are possible.
                 </Hint>
+                {connection.info.zoom && zoom && (
+                  <>
+                    <Text style={styles.text}>Zoom levels of the map</Text>
+                    <ZoomLevelsSetting levels={zoom} onChange={changeZoom} disabled={locked} />
+                  </>
+                )}
               </>
             )}
 

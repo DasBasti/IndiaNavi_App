@@ -6,7 +6,7 @@ import { buildTestMap, testTileBounds } from './mapsforge_test_map.js';
 import {
   BLACK, WHITE, fillPolygon, labelPlacer, makeFramebuffer, polyline, rasterTarget, toAscii,
 } from './navi_raster.js';
-import { CENTER_ANCHOR, NAVI_ZOOMS, SCREEN_HEIGHT, SCREEN_WIDTH, centerOfScreen, deviceAnchor, renderNaviScreen } from './navi_screen.js';
+import { CENTER_ANCHOR, SCREEN_HEIGHT, SCREEN_WIDTH, centerOfScreen, deviceAnchor, naviZooms, renderNaviScreen } from './navi_screen.js';
 import { BLUE, GREEN, P50, RED, tint } from './vector_style.js';
 
 const LAT = 49.143;
@@ -170,8 +170,17 @@ test('a track gets its line and the height graph', () => {
   assert.notEqual(at(without.fb, 200, graphTop), BLACK);
 });
 
-test('the two scales of the button', () => {
-  assert.deepEqual(NAVI_ZOOMS.map(({ zoom, text }) => [zoom, text]), [[16, '100m'], [14, '500m']]);
+test('the button switches between the two chosen zoom levels', () => {
+  assert.deepEqual(naviZooms(), [16, 14]);
+  assert.deepEqual(naviZooms({ near: 17, far: 12 }), [17, 12]);
+  // levels that are not valid are the default
+  assert.deepEqual(naviZooms({ near: 12, far: 14 }), [16, 14]);
+});
+
+test('the zoom levels change the map and the scale', () => {
+  const near = renderNaviScreen({ lat: LAT, lon: LON, zoomLevels: { near: 17, far: 12 }, zoomIndex: 0 });
+  const far = renderNaviScreen({ lat: LAT, lon: LON, zoomLevels: { near: 17, far: 12 }, zoomIndex: 1 });
+  assert.notDeepEqual(near.fb.pixels ?? near.fb, far.fb.pixels ?? far.fb);
 });
 
 // the area of the marker in its color
@@ -190,7 +199,7 @@ const markerAt = (fb, ink = RED) => {
 
 test('the marker is at the position, also when the map shows another place', () => {
   const position = { lat: LAT, lon: LON };
-  const { anchorX, anchorY } = deviceAnchor(LAT, LON, NAVI_ZOOMS[0].zoom);
+  const { anchorX, anchorY } = deviceAnchor(LAT, LON, naviZooms()[0]);
   const following = renderNaviScreen({ lat: LAT, lon: LON, position, trackColor: RED });
   assert.deepEqual(markerAt(following.fb), { x: anchorX, y: anchorY });
 
@@ -199,7 +208,7 @@ test('the marker is at the position, also when the map shows another place', () 
   assert.deepEqual(markerAt(scrolled.fb), { x: anchorX + 40, y: anchorY - 25 });
 
   // the same scrolled map, kept as the place in the middle of the screen
-  const center = centerOfScreen({ lat: LAT, lon: LON, zoom: NAVI_ZOOMS[0].zoom, anchorX: anchorX + 40, anchorY: anchorY - 25 });
+  const center = centerOfScreen({ lat: LAT, lon: LON, zoom: naviZooms()[0], anchorX: anchorX + 40, anchorY: anchorY - 25 });
   const kept = markerAt(renderNaviScreen({ ...center, ...CENTER_ANCHOR, position, trackColor: RED }).fb);
   assert.ok(Math.abs(kept.x - (anchorX + 40)) <= 1);
   assert.ok(Math.abs(kept.y - (anchorY - 25)) <= 1);
@@ -252,4 +261,14 @@ test('a scrolled map draws the tiles on the screen and moves the track with them
   assert.ok(home > 100);
   // scrolled so far that the track left the screen
   assert.equal(reds({ anchorX: anchorX + 2000, anchorY }), 0);
+});
+
+test('the scale is white at the left of the bottom bar, only with a position', () => {
+  const withPosition = renderNaviScreen({ lat: LAT, lon: LON, position: { lat: LAT, lon: LON } });
+  // left edge of the bracket on the black bar
+  assert.equal(at(withPosition.fb, 5, SCREEN_HEIGHT - 5), WHITE);
+  // the position text starts right of the scale area
+  assert.equal(at(withPosition.fb, 50, SCREEN_HEIGHT - 3), BLACK);
+  const without = renderNaviScreen({ lat: LAT, lon: LON, position: null });
+  assert.equal(at(without.fb, 5, SCREEN_HEIGHT - 5), BLACK);
 });

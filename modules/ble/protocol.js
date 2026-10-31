@@ -3,6 +3,10 @@
 // The byte layouts are described in docs/ble_api.md, the firmware has the same in lib/ble_protocol.
 // All numbers are little endian.
 
+import { ZOOM_MAX, ZOOM_MIN, isZoomLevels } from '../zoom_levels.js';
+
+export { ZOOM_MAX, ZOOM_MIN };
+
 export const API_VERSION = 1;
 
 // 494e4449-00NN-4e41-5649-000000000000 ("INDI" "NAVI")
@@ -23,6 +27,7 @@ export const CHARACTERISTICS = {
   deviceControl: uuid(11),
   recording: uuid(12),
   recordings: uuid(13),
+  zoom: uuid(14),
 };
 
 // ---- Base64, the Bluetooth library exchanges values as base64 text ----
@@ -79,7 +84,7 @@ const check = (bytes, length, what) => {
 export const INFO_HEADER_SIZE = 4;
 
 // { api, ota, charging, trackColor (the settings carry the track color), recording (tracks can be recorded),
-//   battery (percent), firmware }
+//   zoom (the two zoom levels can be chosen), battery (percent), firmware }
 export const decodeInfo = (bytes) => {
   if (bytes.length < INFO_HEADER_SIZE) {
     throw new Error('Device info is too short');
@@ -90,6 +95,7 @@ export const decodeInfo = (bytes) => {
     charging: (bytes[1] & 0x02) !== 0,
     trackColor: (bytes[1] & 0x04) !== 0,
     recording: (bytes[1] & 0x08) !== 0,
+    zoom: (bytes[1] & 0x10) !== 0,
     battery: bytes[2],
     firmware: new TextDecoder().decode(bytes.subarray(INFO_HEADER_SIZE)),
   };
@@ -240,6 +246,24 @@ export const decodeSettings = (bytes) => {
     trackColor: bytes[1] === 0 ? TRACK_COLOR_DEFAULT : bytes[1] - 1,
     updateInterval: view(bytes).getUint16(2, true),
   };
+};
+
+// ---- Zoom levels of the map screen ----
+
+export const ZOOM_SIZE = 2;
+
+// near, far: both between ZOOM_MIN and ZOOM_MAX and far lower than near
+export const encodeZoom = (levels) => {
+  if (!isZoomLevels(levels)) {
+    throw new Error(`The zoom levels have to be ${ZOOM_MIN} to ${ZOOM_MAX}, the wider one below the closer one`);
+  }
+  return Uint8Array.of(levels.near, levels.far);
+};
+
+// { near, far }
+export const decodeZoom = (bytes) => {
+  check(bytes, ZOOM_SIZE, 'Zoom levels');
+  return { near: bytes[0], far: bytes[1] };
 };
 
 // ---- Device control ----

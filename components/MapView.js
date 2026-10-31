@@ -18,18 +18,18 @@ const CROSS = 14;
 
 const AREA_COLORS = [colors.blue, colors.ink];
 
-// Color of the frame for the zoom level at the given position in ZOOM_LEVELS
+// Color of the frame for the zoom level at the given position in zooms (from wide to close)
 export const areaColor = (index) => AREA_COLORS[index % AREA_COLORS.length];
 
 const clampZoom = (zoom) => Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM);
 
-const areasOf = (bounds, margin) => ZOOM_LEVELS.map((zoom) => tileArea(bounds, margin, zoom));
+const areasOf = (bounds, margin, zooms) => zooms.map((zoom) => tileArea(bounds, margin, zoom, zooms));
 
 // Map to move around with one finger and to zoom with two fingers or the buttons.
 // view is { lon, lat, zoom } of the center, onViewChange gets the new view after every gesture.
 // With lines (and the bounds of them) the frames show the area of the track, fitKey fits the view to them once.
 // Without lines the area is around the cross in the middle of the map. trackColor is the color of the lines.
-export default function MapView({ view, onViewChange, lines, bounds, fitKey, margin, tileUrlTemplate, trackColor = colors.red }) {
+export default function MapView({ view, onViewChange, lines, bounds, fitKey, margin, zooms = ZOOM_LEVELS, tileUrlTemplate, trackColor = colors.red }) {
   const [size, setSize] = useState(null);
   // pixels the map is dragged by the finger, committed to the view when it is released
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -83,7 +83,7 @@ export default function MapView({ view, onViewChange, lines, bounds, fitKey, mar
   const centerY = lat2world(view.lat);
 
   // the area of the track in world positions, fixed while the map is moved
-  const trackAreas = useMemo(() => (bounds ? areasOf(bounds, margin) : null), [bounds, margin]);
+  const trackAreas = useMemo(() => (bounds ? areasOf(bounds, margin, zooms) : null), [bounds, margin, zooms]);
 
   // fit the view to the area of a track when it is shown
   const fitted = useRef(null);
@@ -161,7 +161,7 @@ export default function MapView({ view, onViewChange, lines, bounds, fitKey, mar
     }
     const liveX = centerX - offset.x / world;
     const liveY = centerY - offset.y / world;
-    const areas = trackAreas ?? areasOf(pointBounds(world2lon(liveX), world2lat(Math.min(Math.max(liveY, 0), 1))), margin);
+    const areas = trackAreas ?? areasOf(pointBounds(world2lon(liveX), world2lat(Math.min(Math.max(liveY, 0), 1))), margin, zooms);
     const x = (worldX) => size.width / 2 + (worldX - liveX) * world;
     const y = (worldY) => size.height / 2 + (worldY - liveY) * world;
     return areas.map((area) => ({
@@ -170,7 +170,7 @@ export default function MapView({ view, onViewChange, lines, bounds, fitKey, mar
       width: x(area.east) - x(area.west),
       height: y(area.south) - y(area.north),
     }));
-  }, [size, trackAreas, margin, centerX, centerY, world, offset]);
+  }, [size, trackAreas, margin, zooms, centerX, centerY, world, offset]);
 
   return (
     <View
@@ -211,7 +211,7 @@ export default function MapView({ view, onViewChange, lines, bounds, fitKey, mar
         <Svg width={size.width} height={size.height} style={StyleSheet.absoluteFill} pointerEvents="none">
           {frames.map((frame, index) => (
             <Rect
-              key={ZOOM_LEVELS[index]}
+              key={zooms[index]}
               {...frame}
               fill="none"
               stroke={areaColor(index)}

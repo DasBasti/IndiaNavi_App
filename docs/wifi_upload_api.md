@@ -20,7 +20,7 @@ The files have the same names and layout as on the SD card today:
 | `MAPS/{zoom}/{x}/{y}.raw` | one map tile, 256x256 pixels, 4 bit per pixel | exactly 32768 bytes |
 | `MAPS/{name}.map` | a vector map (Mapsforge), API version 2 | some 10 MB to a few GB |
 
-- `{zoom}` is 14 or 16 today. `{x}` and `{y}` are the usual slippy map tile numbers in decimal.
+- `{zoom}` is 10 to 17, the two zoom levels the user chose in the app (14 and 16 by default). `{x}` and `{y}` are the usual slippy map tile numbers in decimal.
 - A typical track needs 1100 to 1700 tiles, which is 36 to 55 MB.
 - `{name}` of a vector map has 1 to 8 letters, digits, `_` or `-`. The app names maps after their region and a
   number, `rheinl01.map`. The device draws all maps in `MAPS` that cover the screen (at most 4), a newer map of a
